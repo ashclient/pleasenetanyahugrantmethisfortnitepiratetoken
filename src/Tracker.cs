@@ -32,9 +32,15 @@ public sealed class Tracker(Ledger ledger)
     private DateTimeOffset? lastFrame;
     private bool startVisible;
     public MatchRecord? Current { get; private set; }
+    public string LastDecision { get; private set; } = "No frame processed yet";
     public string Phase { get; private set; } = "Waiting for a match";
 
-    static string Normalize(string s) => Regex.Replace(s.Normalize(NormalizationForm.FormKC).ToUpperInvariant(), @"[^\p{L}\p{N}+ ]", " ");
+    static string Normalize(string s)
+    {
+        var clean = Regex.Replace(s.Normalize(NormalizationForm.FormKC).ToUpperInvariant(), @"[^\p{L}\p{N}+ ]", " ");
+        // Windows Japanese OCR can insert spaces between each Japanese word/glyph.
+        return Regex.Replace(clean, @"(?<=[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}])\s+|\s+(?=[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}])", "");
+    }
     public bool Process(IReadOnlyList<Observation> lines, DateTimeOffset now)
     {
         // Pauses/alt-tab must not re-arm a still-visible notification.
@@ -59,10 +65,20 @@ public sealed class Tracker(Ledger ledger)
             Phase = "Match finished";
         }
         // Restrict chest notifications to the central HUD, excluding quest lists and feed.
-        var center = normalized.Where(x => x.X is > .25 and < .77 && x.Y is > .12 and < .85).ToList();
-        string? chest = center.FirstOrDefault(x => Regex.IsMatch(x.Text, @"\b(SEARCHED A CHEST|CHEST SEARCHED|SEARCHED CHEST)\b"))?.Text;
-        chest ??= center.FirstOrDefault(x => x.Text.Contains("宝箱を開けた") || x.Text.Contains("宝箱を開いた") || x.Text.Contains("宝箱を開けました"))?.Text;
-        if (chest is null && center.Any(x => Regex.IsMatch(x.Text.Trim(), @"^(RARE |TREASURE )?CHEST$|^(レアな|レア|トレジャー)?宝箱$")) && center.Any(x => Regex.IsMatch(x.Text, @"\+?\s*[0-9]+\s*XP\b"))) chest = "CHEST + XP";
+        var center = normalized.Where(x => x.X is > .18 and < .83 && x.Y is > .12 and < .88).ToList();
+        bool Xp(Observation line) => Regex.IsMatch(line.Text, @"[0-9][0-9 ,+]*\s*X\s*P\b");
+        bool Notification(Observation line)
+        {
+            string t = line.Text.Trim();
+            if (Regex.IsMatch(t, @"\b(SEARCHED A CHEST|CHEST SEARCHED|SEARCHED CHEST)\b")) return true;
+            if (t.Contains("宝箱を開けた") || t.Contains("宝箱を開いた") || t.Contains("宝箱を開けました") || t.Contains("宝箱を開封")) return true;
+            // A chest mention alone is insufficient: require a short notification + nearby XP.
+            bool chestName = Regex.IsMatch(t, @"^(RARE |TREASURE )?CHEST$|^(レアな|レア|トレジャー)?宝箱$")
+                || (t.Contains("宝箱") || Regex.IsMatch(t, @"\bCHEST\b")) && t.Length < 35 && Xp(line);
+            if (!chestName) return false;
+            return center.Any(x => Xp(x) && Math.Abs(x.X - line.X) < .28 && Math.Abs(x.Y - line.Y) < .15);
+        }
+        string? chest = center.FirstOrDefault(Notification)?.Text;
         var hits = new Dictionary<string, string>();
         if (chest is not null) hits["Chest"] = chest;
         // Reward names must be accompanied by an award banner, not merely an inventory name.
@@ -76,6 +92,7 @@ public sealed class Tracker(Ledger ledger)
                 ("Pirate shop access", @"\bPIRATE SHOP ACCESS\b|パイレーツショップ|海賊ショップ"), ("Gold outfit", @"\bGOLD(EN)? OUTFIT\b|ゴールドコスチューム|黄金のコスチューム") })
                 if (Regex.IsMatch(rewardText, pattern)) hits[kind] = rewardText;
         }
+        LastDecision = hits.Count > 0 ? "Detected: " + string.Join(", ", hits.Keys) : $"Read {lines.Count} OCR lines; no supported chest/reward notification";
         foreach (string key in latched.ToArray())
             if (!hits.ContainsKey(key) && uninterrupted && now - lastSeen[key] >= TimeSpan.FromSeconds(1.8)) latched.Remove(key);
         foreach (var hit in hits)

@@ -15,10 +15,35 @@ static class Program
             try
             {
                 using var overlay = new OverlayWindow();
-                using var bitmap = new Bitmap(overlay.Width, overlay.Height);
                 overlay.Show();
-                overlay.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
-                bitmap.Save("overlay-preview.png");
+                using (var bitmap = overlay.RenderFrame())
+                {
+                    if (bitmap.GetPixel(0, 0).A != 0) throw new Exception("Overlay background is not transparent.");
+                    bitmap.Save("overlay-preview.png");
+                }
+                overlay.SetClickThrough(true);
+                if (!overlay.InteractionLocked) throw new Exception("Overlay must start click-through.");
+                overlay.SetClickThrough(false); overlay.SetClickThrough(true);
+                using (var hotkey = new InteractionHotkey()) { }
+                overlay.SetPreviewValues("999,999 / 9,999,999", "999,999");
+                using (var stress = overlay.RenderFrame(1.5f))
+                {
+                    var bounds = overlay.CellBounds;
+                    for (int i = 0; i < bounds.Count; i++)
+                    {
+                        if (bounds[i].Right * 1.5 > stress.Width || bounds[i].Bottom * 1.5 > stress.Height) throw new Exception("Count exceeds overlay bounds.");
+                        for (int j = i + 1; j < bounds.Count; j++) if (bounds[i].IntersectsWith(bounds[j])) throw new Exception("Overlay counts overlap.");
+                    }
+                    stress.Save("overlay-large-counts.png");
+                    using var proof = new Bitmap(stress.Width, stress.Height * 2);
+                    using (var g = Graphics.FromImage(proof))
+                    {
+                        g.Clear(Color.FromArgb(211, 224, 195)); g.DrawImage(stress, 0, 0);
+                        using var dark = new SolidBrush(Color.FromArgb(23, 30, 43)); g.FillRectangle(dark, 0, stress.Height, stress.Width, stress.Height);
+                        g.DrawImage(stress, 0, stress.Height);
+                    }
+                    proof.Save("overlay-background-check.png");
+                }
                 using var sample = new Bitmap(1600, 900);
                 using (var g = Graphics.FromImage(sample))
                 { g.Clear(Color.Black); using var font = new Font("Segoe UI", 40); g.DrawString("CHEST SEARCHED", font, Brushes.White, 520, 380); }
@@ -27,7 +52,21 @@ static class Program
                 var ledger = new Ledger();
                 new Tracker(ledger).Process(lines, DateTimeOffset.UtcNow);
                 if (ledger.Totals.GetValueOrDefault("Chest") != 1) throw new Exception("Synthetic OCR integration failed: " + string.Join(" | ", lines.Select(x => x.Text)));
-                File.WriteAllText("smoke-test.txt", "PASS: overlay rendered; packaged exe loaded Windows OCR; synthetic chest recognized. Live Fortnite accuracy not tested.");
+                using var japaneseSample = new Bitmap(1600, 900);
+                using (var g = Graphics.FromImage(japaneseSample))
+                {
+                    g.Clear(Color.FromArgb(38, 56, 79)); using var font = new Font("Yu Gothic", 42, FontStyle.Bold);
+                    g.DrawString("宝箱", font, Brushes.White, 650, 370);
+                    g.DrawString("+100 XP", font, Brushes.Gold, 630, 440);
+                }
+                var japaneseCapture = new GameCapture("ja-JP");
+                var japaneseLines = Task.Run(() => japaneseCapture.Read(japaneseSample)).GetAwaiter().GetResult();
+                var japaneseLedger = new Ledger();
+                new Tracker(japaneseLedger).Process(japaneseLines, DateTimeOffset.UtcNow);
+                File.WriteAllText("japanese-ocr.txt", JsonSerializer.Serialize(japaneseLines));
+                japaneseSample.Save("japanese-ocr-sample.png");
+                if (japaneseLedger.Totals.GetValueOrDefault("Chest") != 1) throw new Exception("Japanese synthetic OCR failed: " + string.Join(" | ", japaneseLines.Select(x => x.Text)));
+                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged Windows OCR recognizes English and Japanese synthetic chests with full and contrast-crop passes. Live Fortnite accuracy not tested.");
                 return 0;
             }
             catch (Exception e) { File.WriteAllText("smoke-test.txt", e.ToString()); return 1; }
@@ -56,6 +95,8 @@ public sealed class LedgerApplication : ApplicationContext
     readonly Preferences preferences;
     readonly OverlayWindow overlay = new();
     readonly NotifyIcon tray;
+    readonly InteractionHotkey interactionHotkey;
+    Bitmap? latestFrame;
     readonly System.Windows.Forms.Timer timer = new() { Interval = 400 };
     readonly string preferencesPath;
     GameCapture? capture;
@@ -78,9 +119,15 @@ public sealed class LedgerApplication : ApplicationContext
         foreach (var (label, code) in new[] { ("日本語 · Japanese", "ja-JP"), ("English", "en-US") })
             languages.DropDownItems.Add(label, null, (_, _) => SetLanguage(code));
         menu.Items.Add(languages);
-        var click = new ToolStripMenuItem("Click-through overlay") { CheckOnClick = true, Checked = preferences.ClickThrough };
-        click.CheckedChanged += (_, _) => { preferences.ClickThrough = click.Checked; overlay.SetClickThrough(click.Checked); SavePreferences(); };
-        menu.Items.Add(click);
+        preferences.ClickThrough = true;
+        interactionHotkey = new InteractionHotkey();
+        interactionHotkey.Pressed += (_, _) =>
+        {
+            preferences.ClickThrough = !preferences.ClickThrough;
+            overlay.SetClickThrough(preferences.ClickThrough);
+            Refresh();
+        };
+        menu.Items.Add(new ToolStripMenuItem("Alt+T · unlock / lock overlay") { Enabled = false });
         menu.Items.Add("Show overlay", null, (_, _) => overlay.Show());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
         tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "Treasure Ledger", Visible = true, ContextMenuStrip = menu };
@@ -92,7 +139,7 @@ public sealed class LedgerApplication : ApplicationContext
         var requested = new Rectangle(preferences.X, preferences.Y, overlay.Width, overlay.Height);
         var area = Screen.AllScreens.FirstOrDefault(s => s.WorkingArea.IntersectsWith(requested))?.WorkingArea ?? Screen.PrimaryScreen!.WorkingArea;
         overlay.Location = new Point(Math.Clamp(preferences.X, area.Left, Math.Max(area.Left, area.Right - overlay.Width)), Math.Clamp(preferences.Y, area.Top, Math.Max(area.Top, area.Bottom - overlay.Height)));
-        overlay.Opacity = Math.Clamp(preferences.Opacity, .5, 1);
+        // Pixel alpha comes from the overlay renderer; do not set Form.Opacity.
         overlay.Show();
         overlay.SetClickThrough(preferences.ClickThrough);
         TryCreateCapture();
@@ -125,9 +172,13 @@ public sealed class LedgerApplication : ApplicationContext
             if (frame is not null)
             {
                 var reader = capture;
+                latestFrame?.Dispose(); latestFrame = new Bitmap(frame);
+                if (GameCapture.LooksBlack(frame))
+                { status = "Capture is black · switch Fortnite to Windowed Fullscreen"; latest = []; return; }
                 latest = await Task.Run(() => reader.Read(frame));
                 if (exiting) return;
                 if (tracker.Process(latest, DateTimeOffset.UtcNow)) store.Save(ledger);
+                status = "Watching Fortnite · " + tracker.LastDecision;
             }
         }
         catch (Exception e) { status = "Recognition error: " + e.Message; }
@@ -142,59 +193,24 @@ public sealed class LedgerApplication : ApplicationContext
     {
         if (dashboard is null || dashboard.IsDisposed)
         {
-            dashboard = new Dashboard(SetLanguage, () => { TryCreateCapture(); Refresh(); }, store.DirectoryPath);
+            dashboard = new Dashboard(SetLanguage, () => { TryCreateCapture(); Refresh(); }, SaveDiagnosis, store.DirectoryPath);
             dashboard.FormClosed += (_, _) => dashboard = null;
         }
         Refresh(); dashboard.Show(); dashboard.Activate();
+    }
+    void SaveDiagnosis()
+    {
+        if (latestFrame is null) { MessageBox.Show("No Fortnite frame has been captured. Bring Fortnite to the foreground in Windowed Fullscreen, then reopen settings using the tray icon."); return; }
+        var folder = Path.Combine(store.DirectoryPath, "Diagnostics"); Directory.CreateDirectory(folder);
+        latestFrame.Save(Path.Combine(folder, "game-frame.png"), System.Drawing.Imaging.ImageFormat.Png);
+        File.WriteAllText(Path.Combine(folder, "recognition.json"), JsonSerializer.Serialize(new { language = preferences.Language, status, decision = tracker.LastDecision, lines = latest }, new JsonSerializerOptions { WriteIndented = true }));
+        Process.Start(new ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
     }
     void SavePreferences() => File.WriteAllText(preferencesPath, JsonSerializer.Serialize(preferences));
     protected override void ExitThreadCore()
     {
         exiting = true; timer.Stop(); timer.Dispose(); SavePreferences();
-        tray.Visible = false; tray.Dispose(); dashboard?.Dispose(); overlay.Dispose(); base.ExitThreadCore();
-    }
-}
-
-public sealed class OverlayWindow : Form
-{
-    [DllImport("user32.dll")] static extern bool ReleaseCapture();
-    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, IntPtr l);
-    [DllImport("user32.dll")] static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] static extern int GetWindowLong(IntPtr h, int i);
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] static extern int SetWindowLong(IntPtr h, int i, int value);
-    public event EventHandler? DetailsRequested;
-    readonly Label match, total, rewards, state, heading;
-    public OverlayWindow()
-    {
-        Text = "Treasure Ledger"; FormBorderStyle = FormBorderStyle.None; TopMost = true;
-        ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
-        ClientSize = new Size(292, 142); BackColor = Color.FromArgb(19, 20, 29);
-        Font = new Font("Segoe UI", 9); ForeColor = Color.FromArgb(235, 236, 245);
-        heading = Add("TREASURE LEDGER  ·  JP", 13, 10, 240, 17, 8, Color.FromArgb(172, 158, 233));
-        var details = Add("···", 260, 5, 25, 22, 12, ForeColor);
-        details.Cursor = Cursors.Hand; details.Click += (_, _) => DetailsRequested?.Invoke(this, EventArgs.Empty);
-        match = Add("0", 12, 28, 125, 36, 27, ForeColor);
-        total = Add("0", 150, 28, 130, 36, 27, ForeColor);
-        Add("THIS MATCH", 15, 70, 125, 15, 7.5f, Color.FromArgb(145, 147, 166));
-        Add("TOTAL TRACKED", 152, 70, 130, 15, 7.5f, Color.FromArgb(145, 147, 166));
-        rewards = Add("Gizmo 0    Screens 0    Other 0", 14, 94, 270, 18, 8, Color.FromArgb(203, 199, 221));
-        state = Add("Waiting for Fortnite", 14, 119, 270, 16, 7.5f, Color.FromArgb(145, 147, 166));
-        foreach (Control c in Controls) if (c != details) c.MouseDown += Drag;
-        MouseDown += Drag;
-        Shown += (_, _) => SetWindowDisplayAffinity(Handle, 0x11);
-    }
-    Label Add(string text, int x, int y, int w, int h, float size, Color color)
-    { var label = new Label { Text = text, Bounds = new Rectangle(x, y, w, h), ForeColor = color, Font = new Font("Segoe UI", size), AutoEllipsis = true }; Controls.Add(label); return label; }
-    void Drag(object? sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, 0xA1, (IntPtr)2, IntPtr.Zero); } }
-    public void SetClickThrough(bool enabled)
-    { int style = GetWindowLong(Handle, -20); SetWindowLong(Handle, -20, enabled ? style | 0x20 | 0x80000 : style & ~0x20); }
-    public void UpdateCounts(Ledger ledger, MatchRecord? current, string status, string language)
-    {
-        var counts = ledger.Totals;
-        match.Text = (current?.Chests ?? 0).ToString("N0"); total.Text = counts.GetValueOrDefault("Chest").ToString("N0");
-        rewards.Text = $"Gizmo {counts.GetValueOrDefault("Gizmo")}    Screens {counts.GetValueOrDefault("Loading screen")}    Other {counts.Where(x => x.Key != "Chest" && x.Key != "Gizmo" && x.Key != "Loading screen").Sum(x => x.Value)}";
-        heading.Text = "TREASURE LEDGER  ·  " + (language == "ja-JP" ? "JP" : "EN");
-        state.Text = status.StartsWith("Watching") ? "● Watching · estimated from visible notifications" : status;
+        tray.Visible = false; tray.Dispose(); interactionHotkey.Dispose(); latestFrame?.Dispose(); dashboard?.Dispose(); overlay.Dispose(); base.ExitThreadCore();
     }
 }
 
@@ -205,14 +221,14 @@ public sealed class Dashboard : Form
     readonly TextBox diagnostics = new();
     readonly ComboBox language = new();
     bool updating;
-    public Dashboard(Action<string> setLanguage, Action retry, string dataPath)
+    public Dashboard(Action<string> setLanguage, Action retry, Action saveDiagnosis, string dataPath)
     {
         Text = "Treasure Ledger · History & settings"; MinimumSize = new Size(760, 650); Size = new Size(840, 740);
         BackColor = Color.FromArgb(19, 20, 29); ForeColor = Color.FromArgb(235, 236, 245); Font = new Font("Segoe UI", 10);
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24), ColumnCount = 1, RowCount = 9 };
         Controls.Add(root);
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 56)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 56)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 45)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 55));
         root.Controls.Add(new Label { Text = "Treasure Ledger", Font = new Font("Segoe UI", 21), Dock = DockStyle.Fill });
@@ -225,12 +241,13 @@ public sealed class Dashboard : Form
         actions.Controls.Add(language);
         var retryButton = new Button { Text = "Retry OCR", AutoSize = true }; retryButton.Click += (_, _) => retry(); actions.Controls.Add(retryButton);
         var folder = new Button { Text = "Open saved data", AutoSize = true }; folder.Click += (_, _) => Process.Start(new ProcessStartInfo("explorer.exe", dataPath) { UseShellExecute = true }); actions.Controls.Add(folder);
+        var diagnostic = new Button { Text = "Save diagnosis", AutoSize = true }; diagnostic.Click += (_, _) => saveDiagnosis(); actions.Controls.Add(diagnostic);
         root.Controls.Add(actions);
         ConfigureList(matches, ["Match started", "Chests", "Rewards", "State"]); root.Controls.Add(matches);
         ConfigureList(rewards, ["Reward", "Total tracked", "This match"]); root.Controls.Add(rewards);
         root.Controls.Add(new Label { Text = "Latest OCR · for checking detection (held in memory only)", AutoSize = true });
         diagnostics.Multiline = true; diagnostics.ReadOnly = true; diagnostics.ScrollBars = ScrollBars.Vertical; diagnostics.Dock = DockStyle.Fill; root.Controls.Add(diagnostics);
-        root.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "Counts are estimates from visible notifications, starting when this app runs. Use Windowed Fullscreen. Japanese HUD detection needs real-game verification. Right-click the overlay or tray icon for controls.", ForeColor = Color.FromArgb(158, 159, 178) });
+        root.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "Counts are estimates from visible notifications, starting when this app runs. Use Windowed Fullscreen. Japanese HUD detection needs real-game verification. Alt+T unlocks/locks the transparent overlay; right-click while unlocked for controls. Save diagnosis exports the last captured game frame and OCR text locally.", ForeColor = Color.FromArgb(158, 159, 178) });
     }
     static void ConfigureList(ListView view, string[] columns)
     { view.Dock = DockStyle.Fill; view.View = View.Details; view.FullRowSelect = true; view.BackColor = Color.FromArgb(27, 28, 40); view.ForeColor = Color.White; view.BorderStyle = BorderStyle.None; foreach (var c in columns) view.Columns.Add(c, c.Contains("started") || c == "Reward" ? 270 : 130); }

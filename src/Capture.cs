@@ -40,19 +40,50 @@ public sealed class GameCapture
         status = "Watching Fortnite · local screen recognition";
         return bitmap;
     }
+    public static bool LooksBlack(Bitmap frame)
+    {
+        int dark = 0, total = 0;
+        for (int y = 1; y < 8; y++) for (int x = 1; x < 12; x++)
+        {
+            var c = frame.GetPixel(frame.Width * x / 12, frame.Height * y / 8);
+            if (c.R < 8 && c.G < 8 && c.B < 8) dark++;
+            total++;
+        }
+        return dark == total;
+    }
     public async Task<List<Observation>> Read(Bitmap source)
     {
-        double scale = Math.Min(1, Math.Min(1920.0 / source.Width, (OcrEngine.MaxImageDimension - 1.0) / Math.Max(source.Width, source.Height)));
-        using var image = new Bitmap(Math.Max(1, (int)(source.Width * scale)), Math.Max(1, (int)(source.Height * scale)), PixelFormat.Format32bppArgb);
-        using (var g = Graphics.FromImage(image)) g.DrawImage(source, 0, 0, image.Width, image.Height);
+        var full = await ReadRegion(source, new Rectangle(0, 0, source.Width, source.Height), false, 1920);
+        // Keep the Japanese notification glyphs large, even on 1440p/4K monitors.
+        // A separate high-contrast pass also removes the busy world behind XP text.
+        var notification = new Rectangle((int)(source.Width * .18), (int)(source.Height * .18), (int)(source.Width * .64), (int)(source.Height * .64));
+        full.AddRange(await ReadRegion(source, notification, true, 2000));
+        return full;
+    }
+    async Task<List<Observation>> ReadRegion(Bitmap source, Rectangle region, bool highContrast, int targetWidth)
+    {
+        double scale = Math.Min(highContrast ? 2.0 : 1.0, Math.Min((double)targetWidth / region.Width, (OcrEngine.MaxImageDimension - 1.0) / Math.Max(region.Width, region.Height)));
+        using var image = new Bitmap(Math.Max(1, (int)(region.Width * scale)), Math.Max(1, (int)(region.Height * scale)), PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(image))
+        {
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.DrawImage(source, new Rectangle(0, 0, image.Width, image.Height), region, GraphicsUnit.Pixel);
+        }
         var data = image.LockBits(new Rectangle(0, 0, image.Width, image.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
         byte[] bytes = new byte[image.Width * image.Height * 4];
         try { for (int row = 0; row < image.Height; row++) Marshal.Copy(data.Scan0 + row * data.Stride, bytes, row * image.Width * 4, image.Width * 4); }
         finally { image.UnlockBits(data); }
+        if (highContrast)
+            for (int i = 0; i < bytes.Length; i += 4)
+            {
+                int brightness = (bytes[i] * 11 + bytes[i + 1] * 59 + bytes[i + 2] * 30) / 100;
+                byte value = brightness >= 172 ? (byte)255 : (byte)0;
+                bytes[i] = bytes[i + 1] = bytes[i + 2] = value; bytes[i + 3] = 255;
+            }
         using var software = SoftwareBitmap.CreateCopyFromBuffer(bytes.AsBuffer(), BitmapPixelFormat.Bgra8, image.Width, image.Height, BitmapAlphaMode.Ignore);
         var result = await engine.RecognizeAsync(software);
-        return result.Lines.Select(line => new Observation(line.Text,
-            line.Words.Count == 0 ? 0 : line.Words.Average(w => w.BoundingRect.X + w.BoundingRect.Width / 2) / image.Width,
-            line.Words.Count == 0 ? 0 : line.Words.Average(w => w.BoundingRect.Y + w.BoundingRect.Height / 2) / image.Height)).ToList();
+        return result.Lines.Where(line => line.Words.Count > 0).Select(line => new Observation(line.Text,
+            (region.X + line.Words.Average(w => w.BoundingRect.X + w.BoundingRect.Width / 2) / scale) / source.Width,
+            (region.Y + line.Words.Average(w => w.BoundingRect.Y + w.BoundingRect.Height / 2) / scale) / source.Height)).ToList();
     }
 }

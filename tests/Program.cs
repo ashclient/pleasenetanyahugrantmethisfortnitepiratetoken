@@ -41,4 +41,13 @@ Check(reload.Totals["Chest"] == 3 && reload.Matches.Count == 2, "History round-t
 var partial = new Ledger();
 new Tracker(partial).Process([O("宝箱を開けた")], time);
 Check(partial.Matches.Count == 1 && partial.Matches[0].Partial, "Mid-game launch creates partial match");
+var jpSpaced = new Ledger();
+new Tracker(jpSpaced).Process([O("宝 箱"), O("+ 1 0 0 X P", .5, .44)], time);
+Check(jpSpaced.Totals.GetValueOrDefault("Chest") == 1, "Japanese OCR word spacing and split XP recognized");
+var jpCombined = new Ledger();
+new Tracker(jpCombined).Process([O("+100XP 宝箱")], time);
+Check(jpCombined.Totals.GetValueOrDefault("Chest") == 1, "Combined XP and Japanese chest line recognized");
+var distant = new Ledger();
+new Tracker(distant).Process([O("宝箱", .5, .35), O("+100XP", .5, .8)], time);
+Check(!distant.Totals.ContainsKey("Chest"), "Unrelated distant XP does not count a chest");
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");
