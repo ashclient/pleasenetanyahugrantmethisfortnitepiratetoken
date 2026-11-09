@@ -1,0 +1,53 @@
+name: Build Windows EXE
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Test counting and history
+        run: dotnet run --project tests/TrackerTests.csproj -c Release
+      - name: Publish standalone Windows executable
+        run: dotnet publish src/TreasureLedger.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o dist
+      - name: Test packaged executable and render overlay
+        shell: pwsh
+        run: |
+          $p = Start-Process ./dist/TreasureLedger.exe -ArgumentList '--self-test' -Wait -PassThru
+          Get-Content smoke-test.txt
+          if ($p.ExitCode -ne 0) { throw "Packaged app self-test failed: $($p.ExitCode)" }
+      - name: Hash executable
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/TreasureLedger.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  TreasureLedger.exe" | Set-Content dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TreasureLedger-Windows-x64
+          path: |
+            dist/TreasureLedger.exe
+            dist/SHA256SUMS.txt
+            overlay-preview.png
+            smoke-test.txt
+      - name: Publish downloadable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = "v0.1.0-build.${{ github.run_number }}"
+          $notes = @'
+          Small draggable Fortnite overlay, Japanese HUD by default, English selector, per-match chest counts, persistent observed totals and treasure history. Standalone Windows x64 executable; no .NET installation required.
+
+          This is an experimental visual tracker. Counts are estimates from on-screen notifications, not authoritative game telemetry. Live Japanese Fortnite footage has not been validated. Use Windowed Fullscreen with visible notifications. It cannot recover previous lifetime counts or reliably distinguish stacked chest notifications. OCR language features for the chosen HUD language must be installed in Windows. Right-click the overlay or system tray icon for settings, click-through and history.
+
+          Checks: synthetic counting/state/persistence tests, packaged executable smoke test, English synthetic Windows OCR integration, overlay render. No live-game accuracy claim.
+          '@
+          $notes | Set-Content release-notes.txt
+          gh release create $tag dist/TreasureLedger.exe dist/SHA256SUMS.txt --target '${{ github.sha }}' --title "Treasure Ledger $tag" --notes-file release-notes.txt --prerelease

@@ -1,0 +1,6 @@
+bin/
+obj/
+dist/
+*.user
+overlay-preview.png
+smoke-test.txt
