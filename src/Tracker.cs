@@ -44,7 +44,7 @@ public sealed class Tracker(Ledger ledger)
     public bool Process(IReadOnlyList<Observation> lines, DateTimeOffset now)
     {
         // Pauses/alt-tab must not re-arm a still-visible notification.
-        var uninterrupted = lastFrame.HasValue && now - lastFrame.Value < TimeSpan.FromSeconds(2);
+        var uninterrupted = lastFrame.HasValue && now - lastFrame.Value < TimeSpan.FromSeconds(5);
         lastFrame = now;
         var normalized = lines.Select(x => x with { Text = Normalize(x.Text) }).ToList();
         var text = string.Join(" ", normalized.Select(x => x.Text));
