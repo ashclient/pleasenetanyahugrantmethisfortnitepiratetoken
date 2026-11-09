@@ -45,6 +45,22 @@ public sealed class JapaneseHudDetector(string name)
         try { for (int y = 0; y < height; y++) Marshal.Copy(bits.Scan0 + y * bits.Stride, bytes, y * width * 4, width * 4); }
         finally { region.UnlockBits(bits); }
         var purple = new bool[width * height];
+        for (int p = 0; p < purple.Length; p++) purple[p] = Mask(bytes[p * 4 + 2], bytes[p * 4 + 1], bytes[p * 4]);
+        if (reference.color == "purple")
+        {
+            // Include the white glyph cores only when touching purple outline pixels.
+            // Otherwise downsampling turns the outline into disconnected, unstable islands.
+            var outline = (bool[])purple.Clone();
+            for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
+            {
+                int p = (y * width + x) * 4;
+                if (purple[y * width + x] || bytes[p] <= 180 || bytes[p + 1] <= 180 || bytes[p + 2] <= 180) continue;
+                bool touching = false;
+                for (int dy = -2; dy <= 2 && !touching; dy++) for (int dx = -2; dx <= 2; dx++)
+                    if (x + dx >= 0 && x + dx < width && y + dy >= 0 && y + dy < height && outline[(y + dy) * width + x + dx]) { touching = true; break; }
+                purple[y * width + x] = touching;
+            }
+        }
         var integral = new int[(width + 1) * (height + 1)];
         int stride = width + 1;
         for (int y = 0; y < height; y++)
@@ -52,9 +68,7 @@ public sealed class JapaneseHudDetector(string name)
             int row = 0;
             for (int x = 0; x < width; x++)
             {
-                int p = (y * width + x) * 4;
-                bool on = Mask(bytes[p + 2], bytes[p + 1], bytes[p]);
-                purple[y * width + x] = on; if (on) row++;
+                if (purple[y * width + x]) row++;
                 integral[(y + 1) * stride + x + 1] = integral[y * stride + x + 1] + row;
             }
         }
@@ -94,7 +108,7 @@ public sealed class JapaneseHudDetector(string name)
                 float recall = intersection / (float)template.On;
                 float specificity = 1 - (count - intersection) / (float)(area - template.On);
                 float score = (recall + specificity) / 2;
-                if (recall < .80 || score < .86 || score <= best) continue;
+                if (recall < .80 || score < (reference.color == "purple" ? .85 : .86) || score <= best) continue;
                 // Require the purple XP/level notification stack above the glyphs.
                 int upper = reference.color == "purple"
                     ? Box(x - (int)(65 * scale), y - (int)(65 * scale), x + (int)(55 * scale), y - (int)(12 * scale))
