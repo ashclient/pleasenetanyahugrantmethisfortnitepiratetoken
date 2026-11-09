@@ -66,7 +66,7 @@ public sealed class Tracker(Ledger ledger)
         }
         // Restrict chest notifications to the central HUD, excluding quest lists and feed.
         var center = normalized.Where(x => x.X is > .18 and < .83 && x.Y is > .12 and < .88).ToList();
-        bool Xp(Observation line) => Regex.IsMatch(line.Text, @"[0-9][0-9 ,+]*\s*X\s*P\b");
+        bool Xp(Observation line) => Regex.IsMatch(line.Text, @"[0-9][0-9 ,+]*\s*X\s*P(?![A-Z])");
         bool Notification(Observation line)
         {
             string t = line.Text.Trim();
