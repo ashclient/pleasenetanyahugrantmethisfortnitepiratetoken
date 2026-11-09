@@ -7,8 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>TreasureLedger</AssemblyName>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
-  <ItemGroup><EmbeddedResource Include="Assets/icons.json" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="Assets/icons.json" /><EmbeddedResource Include="Assets/*-notification.json" /></ItemGroup>
 </Project>

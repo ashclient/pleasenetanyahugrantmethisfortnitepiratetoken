@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace TreasureLedger;
 
-public record Observation(string Text, double X, double Y);
+public record Observation(string Text, double X, double Y, string Source = "ocr");
 public record LedgerEvent(DateTimeOffset At, string Kind, string Evidence);
 public sealed class MatchRecord
 {
@@ -69,6 +69,7 @@ public sealed class Tracker(Ledger ledger)
         bool Xp(Observation line) => Regex.IsMatch(line.Text, @"[0-9][0-9 ,+]*\s*X\s*P(?![A-Z])");
         bool Notification(Observation line)
         {
+            if (line.Source == "visual-ja-chest") return true;
             string t = line.Text.Trim();
             if (Regex.IsMatch(t, @"\b(SEARCHED A CHEST|CHEST SEARCHED|SEARCHED CHEST)\b")) return true;
             if (t.Contains("宝箱を開けた") || t.Contains("宝箱を開いた") || t.Contains("宝箱を開けました") || t.Contains("宝箱を開封")) return true;
@@ -80,7 +81,8 @@ public sealed class Tracker(Ledger ledger)
         }
         string? chest = center.FirstOrDefault(Notification)?.Text;
         var hits = new Dictionary<string, string>();
-        if (chest is not null) hits["Chest"] = chest;
+        if (chest is not null) hits["Chest"] = center.Any(x => x.Source == "visual-ja-chest") ? "宝箱 · Japanese HUD visual match" : chest;
+        if (center.Any(x => x.Source == "visual-ja-gizmo")) hits["Gizmo"] = "見つけたもの 精霊ギズモ · Japanese HUD visual match";
         // Reward names must be accompanied by an award banner, not merely an inventory name.
         var rewardText = string.Join(" ", center.Select(x => x.Text));
         if (rewardText.Contains("YOU FOUND") || rewardText.Contains("TREASURE FOUND") || rewardText.Contains("YOU RECEIVED") || rewardText.Contains("発見") || rewardText.Contains("見つけた") || rewardText.Contains("獲得"))

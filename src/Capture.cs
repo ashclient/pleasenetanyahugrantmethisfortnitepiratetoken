@@ -17,10 +17,16 @@ public sealed class GameCapture
     [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
     private OcrEngine engine;
-    public GameCapture(string language) { engine = CreateEngine(language); }
+    private string languageCode;
+    private readonly JapaneseHudDetector japaneseChest = new("chest"), japaneseGizmo = new("gizmo");
+    public GameCapture(string language) { engine = CreateEngine(language); languageCode = language; }
+    public string RecognitionNote => languageCode == "ja-JP" && !engine.RecognizerLanguage.LanguageTag.StartsWith("ja", StringComparison.OrdinalIgnoreCase)
+        ? "Japanese OCR is unavailable; chest/gizmo visual detection is active. Other Japanese reward categories need Japanese OCR." : "";
+    public string LastOcrError { get; private set; } = "";
     static OcrEngine CreateEngine(string language) => OcrEngine.TryCreateFromLanguage(new Language(language))
+        ?? (language == "ja-JP" ? OcrEngine.TryCreateFromLanguage(new Language("en-US")) : null)
         ?? throw new InvalidOperationException($"{language} OCR is unavailable. Install its OCR language feature in Windows Settings → Time & language → Language & region, then retry. Tracking is paused until the selected language is available.");
-    public void SetLanguage(string language) { engine = CreateEngine(language); }
+    public void SetLanguage(string language) { engine = CreateEngine(language); languageCode = language; }
 
     public Bitmap? Capture(out string status)
     {
@@ -53,16 +59,32 @@ public sealed class GameCapture
     }
     public async Task<List<Observation>> Read(Bitmap source)
     {
-        var full = await ReadRegion(source, new Rectangle(0, 0, source.Width, source.Height), false, 1920);
-        // Keep the Japanese notification glyphs large, even on 1440p/4K monitors.
-        // A separate high-contrast pass also removes the busy world behind XP text.
-        var notification = new Rectangle((int)(source.Width * .18), (int)(source.Height * .18), (int)(source.Width * .64), (int)(source.Height * .64));
-        full.AddRange(await ReadRegion(source, notification, true, 2000));
+        var chest = languageCode == "ja-JP" ? japaneseChest.Find(source) : null;
+        var gizmo = languageCode == "ja-JP" ? japaneseGizmo.Find(source) : null;
+        var full = new List<Observation>();
+        if (chest is not null) full.Add(chest);
+        if (gizmo is not null) full.Add(gizmo);
+        LastOcrError = "";
+        try
+        {
+            full.AddRange(await ReadRegion(source, new Rectangle(0, 0, source.Width, source.Height), false, 1920));
+            // The supplied Japanese reward banner is at the top-center, unlike the XP toast.
+            var notification = languageCode == "ja-JP"
+                ? new Rectangle((int)(source.Width * .35), (int)(source.Height * .07), (int)(source.Width * .30), (int)(source.Height * .30))
+                : new Rectangle((int)(source.Width * .18), (int)(source.Height * .18), (int)(source.Width * .64), (int)(source.Height * .64));
+            full.AddRange(await ReadRegion(source, notification, true, 2000));
+        }
+        catch (Exception e)
+        {
+            LastOcrError = e.Message;
+            // A Windows OCR failure must not discard an independently confirmed visual event.
+            if (full.Count == 0) throw;
+        }
         return full;
     }
     async Task<List<Observation>> ReadRegion(Bitmap source, Rectangle region, bool highContrast, int targetWidth)
     {
-        double scale = Math.Min(highContrast ? 2.0 : 1.0, Math.Min((double)targetWidth / region.Width, (OcrEngine.MaxImageDimension - 1.0) / Math.Max(region.Width, region.Height)));
+        double scale = Math.Min(highContrast ? 4.0 : 1.0, Math.Min((double)targetWidth / region.Width, (OcrEngine.MaxImageDimension - 1.0) / Math.Max(region.Width, region.Height)));
         using var image = new Bitmap(Math.Max(1, (int)(region.Width * scale)), Math.Max(1, (int)(region.Height * scale)), PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(image))
         {
@@ -77,7 +99,8 @@ public sealed class GameCapture
             for (int i = 0; i < bytes.Length; i += 4)
             {
                 int brightness = (bytes[i] * 11 + bytes[i + 1] * 59 + bytes[i + 2] * 30) / 100;
-                byte value = brightness >= 172 ? (byte)255 : (byte)0;
+                bool purpleText = bytes[i + 2] > 120 && bytes[i] > 160 && bytes[i + 2] * 100 > bytes[i + 1] * 117 + 1500 && bytes[i] * 100 > bytes[i + 1] * 115 + 2000;
+                byte value = brightness >= 172 || purpleText ? (byte)255 : (byte)0;
                 bytes[i] = bytes[i + 1] = bytes[i + 2] = value; bytes[i + 3] = 255;
             }
         using var software = SoftwareBitmap.CreateCopyFromBuffer(bytes.AsBuffer(), BitmapPixelFormat.Bgra8, image.Width, image.Height, BitmapAlphaMode.Ignore);

@@ -13,3 +13,5 @@ Fortnite artwork © Epic Games. Source images retrieved from Fortnite.GG treasur
 - Pickaxe: https://fortnite.gg/img/items/25027/icon.jpg?1
 
 Converted to small PNG thumbnails for offline use. Artwork is used to identify the tracked categories; weekly rewards can rotate.
+
+Japanese detection references: tightly cropped chest XP / gizmo notification regions from screenshots supplied by the user in this chat. Only notification text/art and color masks are bundled. Full screenshots, Discord overlays, player names, and account details are excluded.

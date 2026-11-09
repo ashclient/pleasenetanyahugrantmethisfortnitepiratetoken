@@ -39,6 +39,7 @@ jobs:
             overlay-large-counts.png
             overlay-background-check.png
             smoke-test.txt
+            visual-regression.txt
             japanese-ocr.txt
             japanese-ocr-sample.png
       - name: Publish downloadable build
@@ -46,11 +47,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "v0.2.0-build.${{ github.run_number }}"
+          $tag = "v0.2.1-build.${{ github.run_number }}"
           $notes = @'
-          Transparent icon-and-number overlay with bundled Fortnite artwork. Click-through by default; Alt+T unlocks/locks dragging and clicks. Dynamically measured counts wrap without overlap. Improved Japanese notification OCR with a larger high-contrast crop and spacing normalization; local diagnostic export for missed detections. Japanese HUD by default, English selector, persistent match and reward history. Standalone Windows x64 executable; no .NET installation required.
+          Transparent icon-and-number overlay with bundled Fortnite artwork. Click-through by default; Alt+T unlocks/locks dragging and clicks. Dynamically measured counts wrap without overlap. Adds screenshot-verified Japanese chest XP and 精霊ギズモ visual detectors alongside OCR. These two counters can work without the Japanese Windows OCR feature; other Japanese rewards still require it. Top-center reward OCR is enlarged; matching ignores the XP amount. Local diagnostics remain available. Japanese HUD by default, English selector, persistent match and reward history. Standalone Windows x64 executable; no .NET installation required.
 
-          This is an experimental visual tracker. Counts are estimates from on-screen notifications, not authoritative game telemetry. Live Japanese Fortnite footage has not been validated. Use Windowed Fullscreen with visible notifications. It cannot recover previous lifetime counts or reliably distinguish stacked chest notifications. OCR language features for the chosen HUD language must be installed in Windows. Use Alt+T to unlock the overlay, then right-click for settings and history. If tracking still misses, Save diagnosis exports the last captured Fortnite frame and OCR text locally for troubleshooting.
+          This is an experimental visual tracker. Counts are estimates from on-screen notifications, not authoritative game telemetry. Japanese chest and gizmo notification crops supplied by the user are tested, including repeats, rescaling and negative controls. Actual live screen capture has not been tested. Use Windowed Fullscreen with visible notifications. It cannot recover previous lifetime counts or reliably distinguish stacked chest notifications. OCR language features for the chosen HUD language must be installed in Windows. Use Alt+T to unlock the overlay, then right-click for settings and history. If tracking still misses, Save diagnosis exports the last captured Fortnite frame and OCR text locally for troubleshooting.
 
           Checks: synthetic counting/state/persistence tests, packaged executable smoke test, English synthetic Windows OCR integration (Japanese OCR integration is also run when its optional Windows feature is available; check smoke-test.txt for PASS or SKIPPED), transparent overlay rendering, large-count layout at 150% scale, click-through, and Alt+T registration. No live-game accuracy claim.
           '@
