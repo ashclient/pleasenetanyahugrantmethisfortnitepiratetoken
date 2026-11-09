@@ -34,8 +34,10 @@ dotnet run --project tests/TrackerTests.csproj -c Release
 dotnet publish src/TreasureLedger.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o dist
 ```
 
-GitHub Actions builds on Windows, runs synthetic Japanese/English counting tests, tests history persistence and duplicate suppression, installs Japanese OCR on the Windows runner, launches the packaged executable with `--self-test`, tests Japanese and English OCR on rendered notifications, checks transparent pixels and large-number layout at 150% scale, exercises click-through and Alt+T registration, renders the overlay, and publishes a prerelease exe plus SHA-256 checksum. Real Fortnite accuracy still needs live-game validation.
+GitHub Actions builds on Windows, runs synthetic Japanese/English counting tests, tests history persistence and duplicate suppression, launches the packaged executable with `--self-test`, tests English OCR on a rendered notification and Japanese OCR when its optional Windows feature is available, checks transparent pixels and large-number layout at 150% scale, exercises click-through and Alt+T registration, renders the overlay, and publishes a prerelease exe plus SHA-256 checksum. Real Fortnite accuracy still needs live-game validation.
 
 Reference APIs: [Windows OCR](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr.ocrengine), [single-file .NET deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview), [Epic Data API scope](https://dev.epicgames.com/documentation/fortnite/using-fortnite-data-api-in-fortnite). Not affiliated with Epic Games.
 
 Bundled Fortnite icon art and source links: [Assets/SOURCES.md](src/Assets/SOURCES.md).
+
+The v0.2 build host could not finish downloading the Japanese Windows language feature within eight minutes. The smoke-test report explicitly records a Japanese OCR integration skip when that feature is unavailable; synthetic Japanese parsing checks still run. This does not establish live-game tracking accuracy.

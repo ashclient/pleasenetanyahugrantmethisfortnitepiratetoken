@@ -37,7 +37,7 @@ public sealed class OverlayWindow : Form
     protected override bool ShowWithoutActivation => true;
     protected override CreateParams CreateParams
     {
-        get { var cp = base.CreateParams; cp.ExStyle |= 0x80000 | 0x80 | 0x08000000; return cp; }
+        get { var cp = base.CreateParams; cp.ExStyle |= 0x80000 | 0x80 | 0x08000000 | (locked ? 0x20 : 0); return cp; }
     }
     public OverlayWindow()
     {

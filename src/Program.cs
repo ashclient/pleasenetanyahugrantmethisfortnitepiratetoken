@@ -59,14 +59,24 @@ static class Program
                     g.DrawString("宝箱", font, Brushes.White, 650, 370);
                     g.DrawString("+100 XP", font, Brushes.Gold, 630, 440);
                 }
-                var japaneseCapture = new GameCapture("ja-JP");
-                var japaneseLines = Task.Run(() => japaneseCapture.Read(japaneseSample)).GetAwaiter().GetResult();
-                var japaneseLedger = new Ledger();
-                new Tracker(japaneseLedger).Process(japaneseLines, DateTimeOffset.UtcNow);
-                File.WriteAllText("japanese-ocr.txt", JsonSerializer.Serialize(japaneseLines));
-                japaneseSample.Save("japanese-ocr-sample.png");
-                if (japaneseLedger.Totals.GetValueOrDefault("Chest") != 1) throw new Exception("Japanese synthetic OCR failed: " + string.Join(" | ", japaneseLines.Select(x => x.Text)));
-                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged Windows OCR recognizes English and Japanese synthetic chests with full and contrast-crop passes. Live Fortnite accuracy not tested.");
+                string japaneseReport;
+                if (Windows.Media.Ocr.OcrEngine.IsLanguageSupported(new Windows.Globalization.Language("ja-JP")))
+                {
+                    var japaneseCapture = new GameCapture("ja-JP");
+                    var japaneseLines = Task.Run(() => japaneseCapture.Read(japaneseSample)).GetAwaiter().GetResult();
+                    var japaneseLedger = new Ledger();
+                    new Tracker(japaneseLedger).Process(japaneseLines, DateTimeOffset.UtcNow);
+                    File.WriteAllText("japanese-ocr.txt", JsonSerializer.Serialize(japaneseLines));
+                    japaneseSample.Save("japanese-ocr-sample.png");
+                    if (japaneseLedger.Totals.GetValueOrDefault("Chest") != 1) throw new Exception("Japanese synthetic OCR failed: " + string.Join(" | ", japaneseLines.Select(x => x.Text)));
+                    japaneseReport = "PASS: Japanese synthetic Windows OCR integration.";
+                }
+                else
+                {
+                    japaneseReport = "SKIPPED: Japanese OCR integration; this test machine lacks the Japanese OCR feature. Japanese parsing tests are separate; live Japanese game capture still needs validation.";
+                    File.WriteAllText("japanese-ocr.txt", japaneseReport);
+                }
+                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR recognizes a synthetic chest using full and contrast-crop passes.\n" + japaneseReport + "\nLive Fortnite accuracy not tested.");
                 return 0;
             }
             catch (Exception e) { File.WriteAllText("smoke-test.txt", e.ToString()); return 1; }
@@ -97,6 +107,7 @@ public sealed class LedgerApplication : ApplicationContext
     readonly NotifyIcon tray;
     readonly InteractionHotkey interactionHotkey;
     Bitmap? latestFrame;
+    DateTimeOffset? capturedAt;
     readonly System.Windows.Forms.Timer timer = new() { Interval = 400 };
     readonly string preferencesPath;
     GameCapture? capture;
@@ -172,7 +183,7 @@ public sealed class LedgerApplication : ApplicationContext
             if (frame is not null)
             {
                 var reader = capture;
-                latestFrame?.Dispose(); latestFrame = new Bitmap(frame);
+                latestFrame?.Dispose(); latestFrame = new Bitmap(frame); capturedAt = DateTimeOffset.UtcNow; latest = [];
                 if (GameCapture.LooksBlack(frame))
                 { status = "Capture is black · switch Fortnite to Windowed Fullscreen"; latest = []; return; }
                 latest = await Task.Run(() => reader.Read(frame));
@@ -203,7 +214,7 @@ public sealed class LedgerApplication : ApplicationContext
         if (latestFrame is null) { MessageBox.Show("No Fortnite frame has been captured. Bring Fortnite to the foreground in Windowed Fullscreen, then reopen settings using the tray icon."); return; }
         var folder = Path.Combine(store.DirectoryPath, "Diagnostics"); Directory.CreateDirectory(folder);
         latestFrame.Save(Path.Combine(folder, "game-frame.png"), System.Drawing.Imaging.ImageFormat.Png);
-        File.WriteAllText(Path.Combine(folder, "recognition.json"), JsonSerializer.Serialize(new { language = preferences.Language, status, decision = tracker.LastDecision, lines = latest }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(folder, "recognition.json"), JsonSerializer.Serialize(new { capturedAt, language = preferences.Language, status, decision = tracker.LastDecision, lines = latest }, new JsonSerializerOptions { WriteIndented = true }));
         Process.Start(new ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
     }
     void SavePreferences() => File.WriteAllText(preferencesPath, JsonSerializer.Serialize(preferences));
