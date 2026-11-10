@@ -1,31 +1,43 @@
 # Treasure Ledger
 
-A small, draggable, always-on-top Windows overlay for automatically counting visible Fortnite chest and treasure notifications. **Japanese HUD is the default; English is selectable.** No counters to click during play.
+A small transparent Windows overlay that automatically tracks visible Fortnite chest-opening and treasure-award notifications. Japanese and English HUDs are supported. Counters persist between runs.
 
-## Download and run
+## Run
 
-Download **TreasureLedger.exe** from [Releases](https://github.com/ashclient/pleasenetanyahugrantmethisfortnitepiratetoken/releases). Windows 10 version 2004 or newer / Windows 11, x64. The .NET runtime is bundled. No installer or administrator access is needed.
+Download **TreasureLedger.exe** from [Releases](https://github.com/ashclient/pleasenetanyahugrantmethisfortnitepiratetoken/releases). Windows 10 version 2004+ / Windows 11, x64. The runtime and native vision library are bundled; no installer is required.
 
-1. Run the exe and launch Fortnite in **Windowed Fullscreen**. Keep the game foreground and notifications enabled.
-2. The overlay is a short transparent strip of actual Fortnite icons and outlined numbers, with no panel or headings. The chest pair is **this match / total tracked**; rewards show totals. Extra nonzero reward categories appear automatically. Counts are measured and wrapped as they grow, including at higher Windows display scaling.
-3. The overlay starts **locked and click-through** every launch. Press **Alt+T** to unlock clicks and dragging; press it again to lock. While unlocked, right-click any visible icon/number for history, pause, **日本語 / English**, and exit. The system tray menu remains available while locked. The small dot turns purple while unlocked, green while reading the game, amber while waiting or on an OCR error, and pink while paused.
-4. Japanese chest and gizmo notifications also have local visual detectors calibrated to the supplied HUD examples. These two categories can work even if the Windows Japanese OCR feature is absent. For other Japanese reward types, install Japanese OCR and select **Retry OCR**. The history window explicitly reports when Japanese OCR is unavailable and English OCR plus the visual detectors are being used.
+1. Exit any old tracker from its tray menu, then run the new exe.
+2. Run Fortnite in **Windowed Fullscreen**, with the HUD and XP notifications visible.
+3. Choose **Japanese / English** from the tray menu or history window.
+4. The overlay starts click-through. **Alt+T** unlocks dragging and clicks; press it again to lock. Right-click while unlocked for settings. The tray menu always remains available.
 
-The overlay shows the chest icon with match/total counts, plus gizmo, loading screen and music icons with totals. Other reward icons appear when their count is nonzero. The separate history window breaks out gizmos, loading screens, jam tracks, pickaxes, back bling, vehicles/decals, pirate shop access and gold outfits. Every detected event is saved immediately.
+The chest icon shows **this match / total tracked**. Gizmo, loading-screen and music icons show total tracked awards; other nonzero reward categories appear automatically. The background is transparent and counts wrap as they grow.
 
-## What the counts mean
+## Live counting
 
-**This is an experimental visual tracker, not exact Fortnite telemetry.** It reads visible notifications with local Windows OCR on a 400 ms timer (slower when recognition takes longer). Each frame gets a full-window OCR pass. Japanese mode also enlarges the top-center reward banner and runs independent visual matching for the purple `宝箱` chest XP label and gold `精霊ギズモ` reward label. English mode retains a central notification crop. Purple outlined text is preserved by the contrast pass. Japanese OCR word spacing and combined XP/chest lines are normalized. Counts begin while this app is running. It does not retrieve your historical lifetime chests, Epic inventory, or rewards earned while closed. No Epic login is requested.
+The live detector normalizes the screen to 1280 × 720 and analyzes a 360 × 202 XP-popup region using OpenCV template correlation. It follows popup content across frames: added chest lines and multiplier changes (X2/X3) can add an opening without waiting for the entire popup to disappear. Static text, sprite-level lines, and multiplier flicker must not add counts. Frames are sampled independently of Windows OCR, targeting about 15 frames/second; actual cadence depends on capture and CPU time.
 
-Japanese Unicode is preserved; Japanese and English notification patterns are included. **The user-supplied Japanese chest XP and gizmo award screenshot crops are regression fixtures.** Tests check those actual notification crops, duplicate suppression, rescaling and label-absent negative controls. This validates screenshot processing, not live capture from a running Fortnite window. Do not treat a successful build or synthetic test as proof of live accuracy. If an award banner displays only an item's name rather than its category, that reward will not be recognized by these category patterns. UI language remains English; the selector controls the game's OCR language.
+Windows OCR runs separately for match banners and reward names. Known gizmo names include Portable Extractor, Lucky/Sprite Locator, Extraction Site Booster, Extraction Accelerator, and Golden Firework, with Japanese aliases. An award banner is required: merely seeing or equipping a gizmo does not count it. Gizmo counting does not depend on the icon above its category label. Not every localized variant has a real screenshot test yet.
 
-Chest notifications must appear in the central HUD. Quest sidebar text and a bare `Gizmo` item name are ignored. The same visible notification is counted once until it has disappeared for at least 1.8 seconds. This avoids repeated counts, but **stacked chest notifications without a clear gap can be undercounted**. Hidden/disabled XP, destroyed chests without a notification, teammates' rewards, occluded game windows, exclusive fullscreen, nonstandard HUD layout/scale, OCR errors and missed start banners can cause missed or incorrect counts. Match boundaries use waiting/bus/result banners; opening mid-game yields a partial match. Restarting mid-game yields another partial record.
+Japanese OCR is needed for Japanese reward text. If unavailable, the history window explains the fallback; the live Japanese chest detector can still run. Install the Japanese Windows OCR optional feature, then select **Retry OCR** for other Japanese rewards.
 
-Capture pauses while Fortnite is not foreground. The app does not inject, hook, read game memory, inspect credentials, intercept traffic, or send screen images to a server. The overlay requests Windows capture exclusion. This is not an Epic-certified application and no anti-cheat compatibility guarantee is made.
+**Counts remain estimates from captured visible notifications.** This cannot recover old lifetime chests, unseen or disabled notifications, or openings while the app is closed. Nonstandard HUD sizes/aspect ratios, stacked openings too fast to sample, capture restrictions, game updates and recognition errors can cause misses or false counts. Match boundaries use waiting/bus/result banners; starting mid-game produces a partial match. First seeing an X3 banner does not invent three historical openings.
 
-## Data and diagnostics
+The app does not read game memory, inject code, modify Fortnite, intercept traffic, or send screen images to a service. It only captures Fortnite while its game window is foreground. This is an unofficial app; no live-game accuracy guarantee is made. **Replay import is not included.** Existing historical counts are preserved; previously missed openings are not reconstructed by this update.
 
-History: `%LOCALAPPDATA%\TreasureLedger\ledger.json`; the previous save is kept as `ledger.json.bak`. Overlay position/language preferences are in `preferences.json`. An unreadable history file stops startup rather than overwriting it. Back up these files to move computers. The settings window displays the most recent OCR text in memory; the latest game frame and OCR text are held in memory, not automatically written to disk. **Save diagnosis** explicitly writes that frame (`game-frame.png`) and its OCR/decision text (`recognition.json`) into the local `Diagnostics` folder, then opens the folder. This is useful when the app sees Fortnite but misses a chest; it never uploads them automatically. Only the text supporting counted events is saved locally as evidence.
+## After a missed notification
+
+Open history/settings from the tray and select **Save diagnosis**, preferably within about 20 seconds. A bounded memory buffer retains the preceding popup masks and reward-banner crops, so you do not need a screenshot timed to the popup. Leaving Fortnite to open settings preserves that buffer.
+
+Saving writes these local files into `%LOCALAPPDATA%\TreasureLedger\Diagnostics`:
+
+- `live-trace.json`: recent popup masks, frame timing, detector decisions and reward-banner images.
+- `recognition.json`: selected language, latest OCR text and status.
+- `game-frame.png`: the last full captured game frame.
+
+Nothing is uploaded automatically. The full game frame can contain visible player names; inspect files before sharing them.
+
+History is `%LOCALAPPDATA%\TreasureLedger\ledger.json`; the previous save is `ledger.json.bak`. Preferences are in `preferences.json`. Unreadable history stops startup rather than replacing it with zeroes. Back up these files to move computers.
 
 ## Build and validation
 
@@ -34,25 +46,6 @@ dotnet run --project tests/TrackerTests.csproj -c Release
 dotnet publish src/TreasureLedger.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o dist
 ```
 
-GitHub Actions builds on Windows, runs synthetic Japanese/English counting tests, tests history persistence and duplicate suppression, launches the packaged executable with `--self-test`, tests English OCR on a rendered notification and Japanese OCR when its optional Windows feature is available, checks transparent pixels and large-number layout at 150% scale, exercises click-through and Alt+T registration, renders the overlay, and publishes a prerelease exe plus SHA-256 checksum. Real Fortnite accuracy still needs live-game validation.
+GitHub Actions runs parser/state/persistence tests and the packaged exe's `--self-test`. `live-regression.txt` reports this build's actual totals and per-frame times on recorded English popup sequences (X2/X3 stacks, added lines, vault runs, static-popup and sprite-level/weakpoint negatives). It also tests supplied Japanese screenshot samples. Packaged smoke tests exercise transparency, large-number layout, click-through, Alt+T and Windows OCR. These checks are separate from live capture validation on a user's PC.
 
-Reference APIs: [Windows OCR](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr.ocrengine), [single-file .NET deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview), [Epic Data API scope](https://dev.epicgames.com/documentation/fortnite/using-fortnite-data-api-in-fortnite). Not affiliated with Epic Games.
-
-Bundled Fortnite icon art and source links: [Assets/SOURCES.md](src/Assets/SOURCES.md).
-
-The build host does not have the Japanese Windows OCR feature. The native Japanese OCR test is marked SKIPPED when absent; the supplied Japanese chest and gizmo screenshot fixtures are still tested through the actual selected-Japanese capture-processing pipeline with the visual detectors active. This does not establish live-game capture accuracy.
-
-The `750 XP` in the supplied chest example is treated only as notification context: XP is never divided by a fixed amount to infer chest count. A confirmed visible chest label counts once. Visual detections record their source in local event evidence. Other reward categories retain OCR-based matching until real examples are supplied.
-
-
-## v0.3 live counting changes
-
-Chest tracking now runs from a normalized 1280×720 frame and the small XP-notification region (360×202 pixels), using OpenCV correlation and a popup-content state machine. Added chest lines and multiplier changes (X2/X3) are tracked while the popup stays visible. A static popup, a sprite-level line, and a multiplier flicker must not add another opening. The detector samples independently of Windows OCR, which runs in a separate background worker for reward names and match banners. Sampling targets roughly 15 frames/second; actual cadence depends on capture and CPU time.
-
-**This still reads visible gameplay and remains an estimate.** It cannot recover an opening whose evidence was never captured, and game/HUD changes can affect detection. Replay import has not been added. Existing historical counts are preserved; these changes do not reconstruct previously missed openings.
-
-Gizmo award matching accepts the generic category plus known Portable Extractor, Lucky/Sprite Locator, Extraction Site Booster, Extraction Accelerator and Golden Firework names, with Japanese aliases. An award banner is required; merely seeing or equipping a gizmo does not count it. Not every localized variant has a real screenshot test yet.
-
-**Save diagnosis** exports the preceding notification samples: a bounded rolling buffer holds roughly 20 seconds of popup masks and reward-banner crops in memory. It remains available when the game loses focus. Saving writes `live-trace.json` alongside the last full game frame and recognized text. No diagnostic frames are uploaded automatically. If an item was missed, save after it disappears rather than trying to time a screenshot.
-
-English word templates, popup tracking rules, and recorded popup test fixtures are adapted from [Gabriel Gomez's Fortnite Visual Chest Counter](https://github.com/GabrielGzS/fortnite-visual-chest-counter), MIT licensed. See `THIRD_PARTY_GABRIEL_GOMEZ.txt`. The source project provides recorded X2/X3 stacks, added lines, weakpoint/storm/sprite-level negative examples and vault runs. `live-regression.txt` reports the actual totals and per-frame performance produced by this build; these are separate from synthetic parser tests and from live capture validation on a user's PC.
+English templates, temporal tracking rules and packed recorded test masks are adapted from [Gabriel Gomez's Fortnite Visual Chest Counter](https://github.com/GabrielGzS/fortnite-visual-chest-counter), MIT. See `THIRD_PARTY_GABRIEL_GOMEZ.txt`. Native vision uses OpenCvSharp/OpenCV. [Icon/reference sources](src/Assets/SOURCES.md) list the bundled Fortnite artwork and anonymous notification crops. Full user screenshots are not bundled. Not affiliated with Epic Games.

@@ -22,6 +22,7 @@ jobs:
         run: |
           $p = Start-Process ./dist/TreasureLedger.exe -ArgumentList '--self-test' -Wait -PassThru
           Get-Content smoke-test.txt
+          if (Test-Path live-regression.txt) { Get-Content live-regression.txt }
           if ($p.ExitCode -ne 0) { throw "Packaged app self-test failed: $($p.ExitCode)" }
       - name: Hash executable
         shell: pwsh

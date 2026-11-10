@@ -38,8 +38,15 @@ internal static class LiveRegression
                 int added = vision.ProcessMask(mask, t, "en"); actual += added; if (added > 0) eventTimes.Add(t);
                 timings.Add(vision.LastMilliseconds);
             }
-            bool passed = actual == expected; if (!passed) failures++;
-            report.Add($"{(passed ? "PASS" : "FAIL")} {name}: {actual}/{expected}; avg {timings.Average():F1} ms; p95 {timings.OrderBy(x => x).ElementAt((int)(timings.Count * .95)):F1} ms; events {string.Join(",", eventTimes.Select(t => t.ToString("F2")))}");
+            var truth = json.RootElement.GetProperty("truth").GetProperty(name).EnumerateArray().Select(x => x.GetDouble()).ToList();
+            int matched = 0, falseEvents = 0;
+            foreach (double t in eventTimes)
+            {
+                var near = truth.Where(v => t >= v - .5 && t <= v + 2.5).OrderBy(v => Math.Abs(v - t)).Cast<double?>().FirstOrDefault();
+                if (near.HasValue) { truth.Remove(near.Value); matched++; } else falseEvents++;
+            }
+            bool passed = actual == expected && matched == expected && falseEvents == 0; if (!passed) failures++;
+            report.Add($"{(passed ? "PASS" : "FAIL")} {name}: {actual}/{expected}, matched {matched}, false/duplicate {falseEvents}; avg {timings.Average():F1} ms; p95 {timings.OrderBy(x => x).ElementAt((int)(timings.Count * .95)):F1} ms; events {string.Join(",", eventTimes.Select(t => t.ToString("F2")))}");
             File.WriteAllLines("live-regression.txt", report);
         }
         Check(failures == 0, $"Recorded English popup sequences: {count - failures}/{count} correct totals");

@@ -63,7 +63,10 @@ internal sealed class FocusedVision : IDisposable
             Cv.Cv2.MinMaxLoc(result, out _, out double score, out _, out Cv.Point location);
             if (score < threshold || double.IsNaN(score)) break;
             int x = location.X + 2, y = location.Y + 2;
-            if (!found.Any(f => Math.Abs(f.Y - y) <= pattern.Height / 2 + 1)) found.Add((score, y, x));
+            using var window = new Cv.Mat(blurredMask, new Cv.Rect(location.X, location.Y, pattern.Blurred.Cols, pattern.Blurred.Rows));
+            Cv.Cv2.MeanStdDev(window, out _, out Cv.Scalar deviation);
+            bool textured = deviation.Val0 * deviation.Val0 > 5e-4;
+            if (textured && !found.Any(f => Math.Abs(f.Y - y) <= pattern.Height / 2 + 1)) found.Add((score, y, x));
             Cv.Cv2.Rectangle(result, ClampRect(new Cv.Rect(location.X - pattern.Width / 2, location.Y - pattern.Height / 2, pattern.Width, pattern.Height), result), Cv.Scalar.All(-1), -1);
         }
         var lines = new List<VisionLine>();
