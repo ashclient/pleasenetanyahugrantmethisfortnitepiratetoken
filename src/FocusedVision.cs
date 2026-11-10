@@ -57,19 +57,49 @@ internal sealed class FocusedVision : IDisposable
         Cv.Cv2.GaussianBlur(sub, blur, new Cv.Size(0, 0), sigma, sigma, Cv.BorderTypes.Reflect);
         return new VisionPatch(blur.Cols, blur.Rows, Pixels(blur));
     }
-    static List<VisionLine> FindLines(Cv.Mat mask, Cv.Mat blurredMask, Pattern pattern, double threshold)
+    sealed class Moments
+    {
+        readonly double[] sum, square;
+        readonly int stride;
+        public Moments(Cv.Mat image)
+        {
+            stride = image.Cols + 1; sum = new double[stride * (image.Rows + 1)]; square = new double[sum.Length];
+            var pixels = Pixels(image);
+            for (int y = 0; y < image.Rows; y++)
+            {
+                double row = 0, rowSquare = 0;
+                for (int x = 0; x < image.Cols; x++)
+                {
+                    double v = pixels[y * image.Cols + x]; row += v; rowSquare += v * v;
+                    int p = (y + 1) * stride + x + 1;
+                    sum[p] = sum[p - stride] + row; square[p] = square[p - stride] + rowSquare;
+                }
+            }
+        }
+        public double Variance(int x, int y, int w, int h)
+        {
+            int a = y * stride + x, b = a + w, c = (y + h) * stride + x, d = c + w;
+            double s = sum[d] - sum[b] - sum[c] + sum[a], q = square[d] - square[b] - square[c] + square[a];
+            return q / (w * h) - Math.Pow(s / (w * h), 2);
+        }
+    }
+    static List<VisionLine> FindLines(Cv.Mat mask, Cv.Mat blurredMask, Moments moments, Pattern pattern, double threshold)
     {
         using var result = new Cv.Mat(); Cv.Cv2.MatchTemplate(blurredMask, pattern.Blurred, result, Cv.TemplateMatchModes.CCoeffNormed);
+        // Mask every low-variance window before peak selection. Native normalized
+        // correlation may produce near-1 peaks in flat regions depending on CPU
+        // rounding; rejecting only a handful of those peaks can hide real text.
+        var scores = Pixels(result);
+        for (int y = 0; y < result.Rows; y++) for (int x = 0; x < result.Cols; x++)
+            if (moments.Variance(x, y, pattern.Blurred.Cols, pattern.Blurred.Rows) <= 5e-4) scores[y * result.Cols + x] = -1;
+        Marshal.Copy(scores, 0, result.Data, scores.Length);
         var found = new List<(double Score, int Y, int X)>();
         for (int i = 0; i < 12; i++)
         {
             Cv.Cv2.MinMaxLoc(result, out _, out double score, out _, out Cv.Point location);
             if (score < threshold || double.IsNaN(score)) break;
             int x = location.X + 2, y = location.Y + 2;
-            using var window = new Cv.Mat(blurredMask, new Cv.Rect(location.X, location.Y, pattern.Blurred.Cols, pattern.Blurred.Rows));
-            Cv.Cv2.MeanStdDev(window, out _, out Cv.Scalar deviation);
-            bool textured = deviation.Val0 * deviation.Val0 > 5e-4;
-            if (textured && !found.Any(f => Math.Abs(f.Y - y) <= pattern.Height / 2 + 1)) found.Add((score, y, x));
+            if (!found.Any(f => Math.Abs(f.Y - y) <= pattern.Height / 2 + 1)) found.Add((score, y, x));
             Cv.Cv2.Rectangle(result, ClampRect(new Cv.Rect(location.X - pattern.Width / 2, location.Y - pattern.Height / 2, pattern.Width, pattern.Height), result), Cv.Scalar.All(-1), -1);
         }
         var lines = new List<VisionLine>();
@@ -96,16 +126,17 @@ internal sealed class FocusedVision : IDisposable
         var watch = Stopwatch.StartNew(); LastMask = values;
         using var mask = Mat(values, Width, Height); using var blurred = new Cv.Mat();
         Cv.Cv2.GaussianBlur(mask, blurred, new Cv.Size(0, 0), .6, .6, Cv.BorderTypes.Reflect);
+        var moments = new Moments(blurred);
         List<VisionLine> lines = []; Pattern? best = lockedPattern;
         if (values.Sum() >= 20)
         {
-            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, lockedPattern, language == "ja" ? .84 : lockedPattern.Width == 22 ? .85 : .75);
+            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, moments, lockedPattern, language == "ja" ? .84 : lockedPattern.Width == 22 ? .85 : .75);
             else
             {
                 double score = 0;
                 foreach (var pattern in patterns.Where(p => p.Language == language))
                 {
-                    var candidates = FindLines(mask, blurred, pattern, language == "ja" ? .84 : pattern.Width == 22 ? .85 : .75);
+                    var candidates = FindLines(mask, blurred, moments, pattern, language == "ja" ? .84 : pattern.Width == 22 ? .85 : .75);
                     double candidateScore = candidates.Select(c => c.Score).DefaultIfEmpty(0).Max();
                     if (candidateScore > score) { score = candidateScore; lines = candidates; best = pattern; }
                 }
