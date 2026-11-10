@@ -212,7 +212,7 @@ public sealed class Tracker
         }
         // Production capture must first observe a clean award area. An already
         // displayed item/unlock panel at startup is not a newly observed drop.
-        if(!visualActive || rewardArmed)
+        if(!lobbyCleared && (!visualActive || rewardArmed))
             foreach(var reward in rewardHits) hits[reward.Key]=reward.Value;
         else hits.Remove("Gizmo");
         LastDecision = liveChests > 0 ? $"Chest +{liveChests}" : hits.Count > 0 ? "Detected: " + string.Join(", ", hits.Keys) : $"Read {lines.Count} OCR lines; no supported chest/reward notification";

@@ -240,4 +240,10 @@ var rewardEntry=reloadRewardLedger.Matches.SelectMany(m=>m.Events).Single(e=>e.K
 Check(!reloadRewardLedger.Totals.ContainsKey("Pickaxe") && reloadRewardLedger.Matches.SelectMany(m=>m.Events).Contains(rewardEntry),"Excluding a false reward corrects totals without deleting the historical entry");
 rewardEntry.Excluded=false;
 Check(reloadRewardLedger.Totals["Pickaxe"]==1,"Excluded reward entry can be restored");
+
+var menuRewardLedger=new Ledger();var menuRewardTracker=new Tracker(menuRewardLedger);
+menuRewardTracker.Process(Opening(),time);menuRewardTracker.Process(Lobby(5),time.AddSeconds(5));menuRewardTracker.Process(Lobby(5.7),time.AddSeconds(5.7));
+menuRewardTracker.Process(Header(6,""),time.AddSeconds(6));menuRewardTracker.Process(Header(6.7,""),time.AddSeconds(6.7));
+menuRewardTracker.Process(CleanAwards(7),time.AddSeconds(7));menuRewardTracker.Process(CleanAwards(7.5),time.AddSeconds(7.5));menuRewardTracker.Process(Award(8,"PICKAXE"),time.AddSeconds(8));
+Check(!menuRewardLedger.Totals.ContainsKey("Pickaxe") && menuRewardLedger.Totals["Chest"]==1,"Opening an owned-item screen after lobby tabs disappear cannot create a reward");
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");
