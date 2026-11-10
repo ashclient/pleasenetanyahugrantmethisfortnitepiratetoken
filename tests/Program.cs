@@ -50,4 +50,17 @@ Check(jpCombined.Totals.GetValueOrDefault("Chest") == 1, "Combined XP and Japane
 var distant = new Ledger();
 new Tracker(distant).Process([O("宝箱", .5, .35), O("+100XP", .5, .8)], time);
 Check(!distant.Totals.ContainsKey("Chest"), "Unrelated distant XP does not count a chest");
+// Live events arrive once per accepted sequence change and must bypass the old toast latch.
+var live = new Ledger(); var liveTracker = new Tracker(live);
+for (int i = 0; i < 3; i++) liveTracker.Process([new("active",0,0,"visual-active"), new("opening",.7,.32,"event-chest")],time.AddSeconds(i));
+Check(live.Totals.GetValueOrDefault("Chest") == 3, "Three live opening events count while the popup remains on screen");
+liveTracker.Process([new("active",0,0,"visual-active"), O("CHEST SEARCHED"), O("+100 XP")],time.AddSeconds(3));
+Check(live.Totals["Chest"] == 3, "Legacy OCR cannot duplicate a live popup event");
+foreach (var name in new[] { "PORTABLE EXTRACTOR", "LUCKY LOCATOR", "SPRITE LOCATOR", "EXTRACTION SITE BOOSTER", "GOLDEN FIREWORK", "ポータブル抽出器", "ラッキーロケーター", "抽出サイトブースター", "ゴールデンファイアワーク" })
+{
+ var gifts = new Ledger(); new Tracker(gifts).Process([O("YOU FOUND"),O(name)],time);
+ Check(gifts.Totals.GetValueOrDefault("Gizmo")==1, "Gizmo reward alias: " + name);
+ var inventory = new Ledger(); new Tracker(inventory).Process([O(name)],time);
+ Check(!inventory.Totals.ContainsKey("Gizmo"), "Inventory alias alone does not count: " + name);
+}
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");

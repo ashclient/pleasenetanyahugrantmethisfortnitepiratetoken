@@ -18,7 +18,16 @@ public sealed class GameCapture
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
     private OcrEngine engine;
     private string languageCode;
-    private readonly JapaneseHudDetector japaneseChest = new("chest"), japaneseGizmo = new("gizmo");
+    private readonly JapaneseHudDetector japaneseGizmo = new("gizmo");
+    private readonly FocusedVision vision = new();
+    private readonly Queue<Observation> metadata = new();
+    private readonly object metadataLock = new();
+    private volatile bool metadataBusy;
+    private DateTimeOffset nextMetadata;
+    private int metadataRound;
+    public string VisionSummary => vision.Summary;
+    public double VisionMilliseconds => vision.LastMilliseconds;
+    public object Diagnostic => new { engine = "focused-popup-sequence-v3", vision = vision.Summary, frames = vision.Trace, banners = vision.BannerTrace };
     public GameCapture(string language) { engine = CreateEngine(language); languageCode = language; }
     public string RecognitionNote => languageCode == "ja-JP" && !engine.RecognizerLanguage.LanguageTag.StartsWith("ja", StringComparison.OrdinalIgnoreCase)
         ? "Japanese OCR is unavailable; chest/gizmo visual detection is active. Other Japanese reward categories need Japanese OCR." : "";
@@ -57,34 +66,54 @@ public sealed class GameCapture
         }
         return dark == total;
     }
-    public async Task<List<Observation>> Read(Bitmap source)
+    public List<Observation> ReadFast(Bitmap source, DateTimeOffset at)
     {
-        var chest = languageCode == "ja-JP" ? japaneseChest.Find(source) : null;
-        var gizmo = languageCode == "ja-JP" ? japaneseGizmo.Find(source) : null;
-        var full = new List<Observation>();
-        if (chest is not null) full.Add(chest);
-        if (gizmo is not null) full.Add(gizmo);
-        LastOcrError = "";
-        try
+        var result = vision.Process(source, at, languageCode);
+        lock (metadataLock) while (metadata.Count > 0) result.Add(metadata.Dequeue());
+        if (!metadataBusy && at >= nextMetadata)
         {
-            full.AddRange(await ReadRegion(source, new Rectangle(0, 0, source.Width, source.Height), false, 1920));
-            // The supplied Japanese reward banner is at the top-center, unlike the XP toast.
-            var notification = languageCode == "ja-JP"
-                ? new Rectangle((int)(source.Width * .35), (int)(source.Height * .07), (int)(source.Width * .30), (int)(source.Height * .30))
-                : new Rectangle((int)(source.Width * .18), (int)(source.Height * .18), (int)(source.Width * .64), (int)(source.Height * .64));
-            full.AddRange(await ReadRegion(source, notification, true, 2000));
+            metadataBusy = true; nextMetadata = at.AddMilliseconds(450);
+            var copy = new Bitmap(source);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using (copy)
+                    {
+                        var items = await ReadMetadata(copy);
+                        lock (metadataLock) { metadata.Enqueue(new Observation("Metadata sample", 0, 0, "metadata-pass")); foreach (var item in items) metadata.Enqueue(item); }
+                    }
+                    LastOcrError = "";
+                }
+                catch (Exception e) { LastOcrError = e.Message; copy.Dispose(); }
+                finally { metadataBusy = false; }
+            });
         }
-        catch (Exception e)
+        return result;
+    }
+    // Synchronous metadata entry point used by packaged OCR checks and diagnostics.
+    public Task<List<Observation>> Read(Bitmap source) => ReadMetadata(source, true);
+    async Task<List<Observation>> ReadMetadata(Bitmap source, bool full = false)
+    {
+        var result = new List<Observation>();
+        if (full || metadataRound++ % 4 == 0)
+            result.AddRange(await ReadRegion(source, new Rectangle(0, 0, source.Width, source.Height), false, 1920));
+        var banner = new Rectangle((int)(source.Width * .35), (int)(source.Height * .07), (int)(source.Width * .30), (int)(source.Height * .30));
+        result.AddRange(await ReadRegion(source, banner, false, 1500));
+        result.AddRange(await ReadRegion(source, banner, true, 1500));
+        result = result.Select(x => x with { Source = "metadata" }).ToList();
+        if (languageCode == "ja-JP")
         {
-            LastOcrError = e.Message;
-            // A Windows OCR failure must not discard an independently confirmed visual event.
-            if (full.Count == 0) throw;
+            using var normalized = new Bitmap(1919, 1079, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(normalized)) g.DrawImage(source, 0, 0, normalized.Width, normalized.Height);
+            var gizmo = japaneseGizmo.Find(normalized);
+            if (gizmo is not null) result.Add(gizmo);
         }
-        return full;
+        return result;
     }
     async Task<List<Observation>> ReadRegion(Bitmap source, Rectangle region, bool highContrast, int targetWidth)
     {
-        double scale = Math.Min(highContrast ? 4.0 : 1.0, Math.Min((double)targetWidth / region.Width, (OcrEngine.MaxImageDimension - 1.0) / Math.Max(region.Width, region.Height)));
+        double scale = Math.Min(highContrast ? 4.0 : 3.0, Math.Min((double)targetWidth / region.Width, (OcrEngine.MaxImageDimension - 1.0) / Math.Max(region.Width, region.Height)));
         using var image = new Bitmap(Math.Max(1, (int)(region.Width * scale)), Math.Max(1, (int)(region.Height * scale)), PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(image))
         {

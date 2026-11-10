@@ -49,9 +49,7 @@ static class Program
                 { g.Clear(Color.Black); using var font = new Font("Segoe UI", 40); g.DrawString("CHEST SEARCHED", font, Brushes.White, 520, 380); }
                 var capture = new GameCapture("en-US");
                 var lines = Task.Run(() => capture.Read(sample)).GetAwaiter().GetResult();
-                var ledger = new Ledger();
-                new Tracker(ledger).Process(lines, DateTimeOffset.UtcNow);
-                if (ledger.Totals.GetValueOrDefault("Chest") != 1) throw new Exception("Synthetic OCR integration failed: " + string.Join(" | ", lines.Select(x => x.Text)));
+                if (!lines.Any(x => x.Text.Contains("CHEST", StringComparison.OrdinalIgnoreCase))) throw new Exception("Windows OCR did not read the synthetic text.");
                 using var japaneseSample = new Bitmap(1600, 900);
                 using (var g = Graphics.FromImage(japaneseSample))
                 {
@@ -59,14 +57,14 @@ static class Program
                     g.DrawString("宝箱", font, Brushes.White, 650, 370);
                     g.DrawString("+100 XP", font, Brushes.Gold, 630, 440);
                 }
-                VisualRegression.Run();
+                LiveRegression.Run();
                 string japaneseReport;
                 if (Windows.Media.Ocr.OcrEngine.IsLanguageSupported(new Windows.Globalization.Language("ja-JP")))
                 {
                     var japaneseCapture = new GameCapture("ja-JP");
                     var japaneseLines = Task.Run(() => japaneseCapture.Read(japaneseSample)).GetAwaiter().GetResult();
                     var japaneseLedger = new Ledger();
-                    new Tracker(japaneseLedger).Process(japaneseLines, DateTimeOffset.UtcNow);
+                    new Tracker(japaneseLedger).Process(japaneseLines.Select(x => x with { Source = "ocr" }).ToList(), DateTimeOffset.UtcNow);
                     File.WriteAllText("japanese-ocr.txt", JsonSerializer.Serialize(japaneseLines));
                     japaneseSample.Save("japanese-ocr-sample.png");
                     if (japaneseLedger.Totals.GetValueOrDefault("Chest") != 1) throw new Exception("Japanese synthetic OCR failed: " + string.Join(" | ", japaneseLines.Select(x => x.Text)));
@@ -77,7 +75,7 @@ static class Program
                     japaneseReport = "SKIPPED: Japanese OCR integration; this test machine lacks the Japanese OCR feature. Japanese parsing tests are separate; live Japanese game capture still needs validation.";
                     File.WriteAllText("japanese-ocr.txt", japaneseReport);
                 }
-                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR recognizes a synthetic chest using full and contrast-crop passes.\n" + japaneseReport + "\nSupplied Japanese chest and gizmo screenshot crops tested by VisualRegression; live game capture not tested.");
+                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR recognizes a synthetic chest using full and contrast-crop passes.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Captured gameplay on the user PC still requires verification.");
                 return 0;
             }
             catch (Exception e) { File.WriteAllText("smoke-test.txt", e.ToString()); return 1; }
@@ -109,7 +107,7 @@ public sealed class LedgerApplication : ApplicationContext
     readonly InteractionHotkey interactionHotkey;
     Bitmap? latestFrame;
     DateTimeOffset? capturedAt;
-    readonly System.Windows.Forms.Timer timer = new() { Interval = 400 };
+    readonly System.Windows.Forms.Timer timer = new() { Interval = 67 };
     readonly string preferencesPath;
     GameCapture? capture;
     Dashboard? dashboard;
@@ -187,10 +185,10 @@ public sealed class LedgerApplication : ApplicationContext
                 latestFrame?.Dispose(); latestFrame = new Bitmap(frame); capturedAt = DateTimeOffset.UtcNow; latest = [];
                 if (GameCapture.LooksBlack(frame))
                 { status = "Capture is black · switch Fortnite to Windowed Fullscreen"; latest = []; return; }
-                latest = await Task.Run(() => reader.Read(frame));
+                latest = await Task.Run(() => reader.ReadFast(frame, capturedAt!.Value));
                 if (exiting) return;
-                if (tracker.Process(latest, DateTimeOffset.UtcNow)) store.Save(ledger);
-                status = "Watching Fortnite · " + tracker.LastDecision + (string.IsNullOrEmpty(reader.RecognitionNote) ? "" : " · " + reader.RecognitionNote) + (string.IsNullOrEmpty(reader.LastOcrError) ? "" : " · OCR error: " + reader.LastOcrError);
+                if (tracker.Process(latest, capturedAt!.Value)) store.Save(ledger);
+                status = "Watching Fortnite · " + reader.VisionSummary + " · " + tracker.LastDecision + (string.IsNullOrEmpty(reader.RecognitionNote) ? "" : " · " + reader.RecognitionNote) + (string.IsNullOrEmpty(reader.LastOcrError) ? "" : " · OCR error: " + reader.LastOcrError);
             }
         }
         catch (Exception e) { status = "Recognition error: " + e.Message; }
@@ -216,6 +214,7 @@ public sealed class LedgerApplication : ApplicationContext
         var folder = Path.Combine(store.DirectoryPath, "Diagnostics"); Directory.CreateDirectory(folder);
         latestFrame.Save(Path.Combine(folder, "game-frame.png"), System.Drawing.Imaging.ImageFormat.Png);
         File.WriteAllText(Path.Combine(folder, "recognition.json"), JsonSerializer.Serialize(new { capturedAt, language = preferences.Language, status, recognitionNote = capture?.RecognitionNote, ocrError = capture?.LastOcrError, decision = tracker.LastDecision, lines = latest }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(folder, "live-trace.json"), JsonSerializer.Serialize(capture?.Diagnostic));
         Process.Start(new ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
     }
     void SavePreferences() => File.WriteAllText(preferencesPath, JsonSerializer.Serialize(preferences));
@@ -257,9 +256,9 @@ public sealed class Dashboard : Form
         root.Controls.Add(actions);
         ConfigureList(matches, ["Match started", "Chests", "Rewards", "State"]); root.Controls.Add(matches);
         ConfigureList(rewards, ["Reward", "Total tracked", "This match"]); root.Controls.Add(rewards);
-        root.Controls.Add(new Label { Text = "Latest OCR · for checking detection (held in memory only)", AutoSize = true });
+        root.Controls.Add(new Label { Text = "Live recognition · Save diagnosis retains the last notification samples", AutoSize = true });
         diagnostics.Multiline = true; diagnostics.ReadOnly = true; diagnostics.ScrollBars = ScrollBars.Vertical; diagnostics.Dock = DockStyle.Fill; root.Controls.Add(diagnostics);
-        root.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "Counts are estimates from visible notifications, starting when this app runs. Use Windowed Fullscreen. Japanese HUD detection needs real-game verification. Alt+T unlocks/locks the transparent overlay; right-click while unlocked for controls. Save diagnosis exports the last captured game frame and OCR text locally.", ForeColor = Color.FromArgb(158, 159, 178) });
+        root.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "Counts are estimates from visible notifications, starting when this app runs. Use Windowed Fullscreen. Japanese HUD detection needs real-game verification. Alt+T unlocks/locks the transparent overlay; right-click while unlocked for controls. Save diagnosis exports the preceding notification-area frames and recognition trace locally, even after a missed popup disappears.", ForeColor = Color.FromArgb(158, 159, 178) });
     }
     static void ConfigureList(ListView view, string[] columns)
     { view.Dock = DockStyle.Fill; view.View = View.Details; view.FullRowSelect = true; view.BackColor = Color.FromArgb(27, 28, 40); view.ForeColor = Color.White; view.BorderStyle = BorderStyle.None; foreach (var c in columns) view.Columns.Add(c, c.Contains("started") || c == "Reward" ? 270 : 130); }

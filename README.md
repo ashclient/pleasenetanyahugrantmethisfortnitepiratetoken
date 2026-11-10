@@ -43,3 +43,16 @@ Bundled Fortnite icon art and source links: [Assets/SOURCES.md](src/Assets/SOURC
 The build host does not have the Japanese Windows OCR feature. The native Japanese OCR test is marked SKIPPED when absent; the supplied Japanese chest and gizmo screenshot fixtures are still tested through the actual selected-Japanese capture-processing pipeline with the visual detectors active. This does not establish live-game capture accuracy.
 
 The `750 XP` in the supplied chest example is treated only as notification context: XP is never divided by a fixed amount to infer chest count. A confirmed visible chest label counts once. Visual detections record their source in local event evidence. Other reward categories retain OCR-based matching until real examples are supplied.
+
+
+## v0.3 live counting changes
+
+Chest tracking now runs from a normalized 1280×720 frame and the small XP-notification region (360×202 pixels), using OpenCV correlation and a popup-content state machine. Added chest lines and multiplier changes (X2/X3) are tracked while the popup stays visible. A static popup, a sprite-level line, and a multiplier flicker must not add another opening. The detector samples independently of Windows OCR, which runs in a separate background worker for reward names and match banners. Sampling targets roughly 15 frames/second; actual cadence depends on capture and CPU time.
+
+**This still reads visible gameplay and remains an estimate.** It cannot recover an opening whose evidence was never captured, and game/HUD changes can affect detection. Replay import has not been added. Existing historical counts are preserved; these changes do not reconstruct previously missed openings.
+
+Gizmo award matching accepts the generic category plus known Portable Extractor, Lucky/Sprite Locator, Extraction Site Booster, Extraction Accelerator and Golden Firework names, with Japanese aliases. An award banner is required; merely seeing or equipping a gizmo does not count it. Not every localized variant has a real screenshot test yet.
+
+**Save diagnosis** exports the preceding notification samples: a bounded rolling buffer holds roughly 20 seconds of popup masks and reward-banner crops in memory. It remains available when the game loses focus. Saving writes `live-trace.json` alongside the last full game frame and recognized text. No diagnostic frames are uploaded automatically. If an item was missed, save after it disappears rather than trying to time a screenshot.
+
+English word templates, popup tracking rules, and recorded popup test fixtures are adapted from [Gabriel Gomez's Fortnite Visual Chest Counter](https://github.com/GabrielGzS/fortnite-visual-chest-counter), MIT licensed. See `THIRD_PARTY_GABRIEL_GOMEZ.txt`. The source project provides recorded X2/X3 stacks, added lines, weakpoint/storm/sprite-level negative examples and vault runs. `live-regression.txt` reports the actual totals and per-frame performance produced by this build; these are separate from synthetic parser tests and from live capture validation on a user's PC.

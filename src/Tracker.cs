@@ -31,6 +31,7 @@ public sealed class Tracker(Ledger ledger)
     private readonly HashSet<string> latched = [];
     private DateTimeOffset? lastFrame;
     private bool startVisible;
+    private readonly Dictionary<string, int> absentMetadata = [];
     public MatchRecord? Current { get; private set; }
     public string LastDecision { get; private set; } = "No frame processed yet";
     public string Phase { get; private set; } = "Waiting for a match";
@@ -46,6 +47,8 @@ public sealed class Tracker(Ledger ledger)
         // Pauses/alt-tab must not re-arm a still-visible notification.
         var uninterrupted = lastFrame.HasValue && now - lastFrame.Value < TimeSpan.FromSeconds(5);
         lastFrame = now;
+        bool visualActive = lines.Any(x => x.Source == "visual-active");
+        bool metadataFrame = lines.Any(x => x.Source == "metadata-pass");
         var normalized = lines.Select(x => x with { Text = Normalize(x.Text) }).ToList();
         var text = string.Join(" ", normalized.Select(x => x.Text));
         bool changed = false;
@@ -69,6 +72,7 @@ public sealed class Tracker(Ledger ledger)
         bool Xp(Observation line) => Regex.IsMatch(line.Text, @"[0-9][0-9 ,+]*\s*X\s*P(?![A-Z])");
         bool Notification(Observation line)
         {
+            if (visualActive || line.Source == "metadata") return false;
             if (line.Source == "visual-ja-chest") return true;
             string t = line.Text.Trim();
             if (Regex.IsMatch(t, @"\b(SEARCHED A CHEST|CHEST SEARCHED|SEARCHED CHEST)\b")) return true;
@@ -80,23 +84,35 @@ public sealed class Tracker(Ledger ledger)
             return center.Any(x => Xp(x) && Math.Abs(x.X - line.X) < .28 && Math.Abs(x.Y - line.Y) < .15);
         }
         string? chest = center.FirstOrDefault(Notification)?.Text;
+        int liveChests = lines.Count(x => x.Source == "event-chest");
+        if (liveChests > 0)
+        {
+            if (Current is null) { Current = new MatchRecord { Started = now, Partial = true }; ledger.Matches.Add(Current); Phase = "Partial match · opened mid-game"; }
+            foreach (var observation in lines.Where(x => x.Source == "event-chest")) Current.Events.Add(new LedgerEvent(now, "Chest", observation.Text));
+            changed = true;
+        }
         var hits = new Dictionary<string, string>();
         if (chest is not null) hits["Chest"] = center.Any(x => x.Source == "visual-ja-chest") ? "宝箱 · Japanese HUD visual match" : chest;
         if (center.Any(x => x.Source == "visual-ja-gizmo")) hits["Gizmo"] = "見つけたもの 精霊ギズモ · Japanese HUD visual match";
         // Reward names must be accompanied by an award banner, not merely an inventory name.
         var rewardText = string.Join(" ", center.Select(x => x.Text));
-        if (rewardText.Contains("YOU FOUND") || rewardText.Contains("TREASURE FOUND") || rewardText.Contains("YOU RECEIVED") || rewardText.Contains("発見") || rewardText.Contains("見つけた") || rewardText.Contains("獲得"))
+        if (System.Text.RegularExpressions.Regex.IsMatch(rewardText, @"YOU (HAVE |VE )?(FOUND|RECEIVED|UNLOCKED)") || rewardText.Contains("YOU FOUND") || rewardText.Contains("YOUFOUND") || rewardText.Contains("TREASURE FOUND") || rewardText.Contains("YOU RECEIVED") || rewardText.Contains("発見") || rewardText.Contains("見つけた") || rewardText.Contains("獲得"))
         {
             foreach (var (kind, pattern) in new (string, string)[] {
-                ("Gizmo", @"\bGIZMO\b|ギズモ"), ("Loading screen", @"\bLOADING SCREEN\b|ロード画面|ローディング画面"),
+                ("Gizmo", @"\bGIZM[O0]S?\b|[ギキ][ズス]モ|\b(PORTABLE EXTRACTOR|LUCKY LOCATOR|SPRITE LOCATOR|EXTRACTION (SITE BOOSTER|BOOSTER|ACCELERATOR)|GOLDEN FIREWORKS?)\b|ポータブル抽出器|ラッキーロケーター|ラッキー探知機|抽出サイトブースター|ゴールデンファイアワーク|黄金の花火"), ("Loading screen", @"\bLOADING SCREEN\b|ロード画面|ローディング画面"),
                 ("Jam track", @"\bJAM TRACK\b|ジャムトラック"), ("Pickaxe", @"\bPICKAXE\b|ツルハシ"),
                 ("Back bling", @"\bBACK\s?BLING\b|バックアクセサリー"), ("Vehicle / decal", @"\b(VEHICLE|DECAL)\b|車両|デカール"),
                 ("Pirate shop access", @"\bPIRATE SHOP ACCESS\b|パイレーツショップ|海賊ショップ"), ("Gold outfit", @"\bGOLD(EN)? OUTFIT\b|ゴールドコスチューム|黄金のコスチューム") })
                 if (Regex.IsMatch(rewardText, pattern)) hits[kind] = rewardText;
         }
-        LastDecision = hits.Count > 0 ? "Detected: " + string.Join(", ", hits.Keys) : $"Read {lines.Count} OCR lines; no supported chest/reward notification";
+        LastDecision = liveChests > 0 ? $"Chest +{liveChests}" : hits.Count > 0 ? "Detected: " + string.Join(", ", hits.Keys) : $"Read {lines.Count} OCR lines; no supported chest/reward notification";
         foreach (string key in latched.ToArray())
-            if (!hits.ContainsKey(key) && uninterrupted && now - lastSeen[key] >= TimeSpan.FromSeconds(1.8)) latched.Remove(key);
+        {
+            if (hits.ContainsKey(key)) { absentMetadata[key] = 0; continue; }
+            if (visualActive && !metadataFrame) continue;
+            absentMetadata[key] = absentMetadata.GetValueOrDefault(key) + 1;
+            if (uninterrupted && absentMetadata[key] >= 2 && now - lastSeen[key] >= TimeSpan.FromSeconds(.6)) latched.Remove(key);
+        }
         foreach (var hit in hits)
         {
             lastSeen[hit.Key] = now;

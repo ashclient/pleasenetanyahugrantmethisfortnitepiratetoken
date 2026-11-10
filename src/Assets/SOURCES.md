@@ -15,3 +15,5 @@ Fortnite artwork © Epic Games. Source images retrieved from Fortnite.GG treasur
 Converted to small PNG thumbnails for offline use. Artwork is used to identify the tracked categories; weekly rewards can rotate.
 
 Japanese detection references: tightly cropped chest XP / gizmo notification regions from screenshots supplied by the user in this chat. Only notification text/art and color masks are bundled. Full screenshots, Discord overlays, player names, and account details are excluded.
+
+Live English glyph templates and packed popup-only recorded regression fixtures: Gabriel Gomez / fortnite-visual-chest-counter, MIT. Original LICENSE retained as THIRD_PARTY_GABRIEL_GOMEZ.txt. The fixture names and expected counts are from its tests/cases/cases.json; source video and full-screen frames are not bundled.

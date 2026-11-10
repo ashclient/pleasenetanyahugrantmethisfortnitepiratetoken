@@ -31,6 +31,7 @@ public sealed class OverlayWindow : Form
     readonly List<RectangleF> cellBounds = [];
     Color stateColor = Color.FromArgb(245, 186, 91);
     bool locked = true;
+    string? renderedSignature;
     public event EventHandler? DetailsRequested;
     public IReadOnlyList<RectangleF> CellBounds => cellBounds;
     public bool InteractionLocked => locked;
@@ -78,7 +79,8 @@ public sealed class OverlayWindow : Form
         stateColor = !locked ? Color.FromArgb(190, 161, 255) : status == "Paused" ? Color.FromArgb(249, 118, 151)
             : status.StartsWith("Watching") ? Color.FromArgb(106, 230, 181) : Color.FromArgb(245, 186, 91);
         hint.SetToolTip(this, $"Chest: this match / total tracked\nReward icons: total tracked\n{status}\n{(language == "ja-JP" ? "Japanese" : "English")} HUD · Alt+T to {(locked ? "unlock" : "lock")} interaction\nUnlocked: drag to move, right-click for settings");
-        if (Visible) Present();
+        string signature = string.Join("|", cells.Select(x => x.Kind + ":" + x.Value)) + ":" + stateColor.ToArgb() + ":" + locked;
+        if (Visible && signature != renderedSignature) { renderedSignature = signature; Present(); }
     }
     // Rendering is shared by the live overlay and the executable's layout regression test.
     public Bitmap RenderFrame(float scale = 1)
