@@ -88,7 +88,10 @@ internal sealed class PopupSequence
         }
         if (candidate is not null && Same(lines, candidate) && VisionPatch.Similarity(candidateXp, xp, 2) >= .90) candidateFrames++;
         else { candidate = lines; candidateFrames = 1; candidateAt = t; candidateXp = xp; }
-        if (candidateFrames < 2 || t - candidateAt < .18) return emitted;
+        // At the 15 Hz capture cadence, three matching frames span about 133 ms.
+        // Adopt once: repeatedly adopting an unchanged candidate erases the XP
+        // change evidence while a new multiplier is still settling.
+        if (candidateFrames != 3) return emitted;
         var next = candidate!; var old = stable;
         if (old is not null && Regresses(old, next)) { candidate = null; candidateFrames = 0; return emitted; }
         double changeAt = double.IsNaN(diffSince) || candidateAt - diffSince > 1 ? candidateAt : diffSince;
