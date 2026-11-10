@@ -35,6 +35,7 @@ internal sealed class PopupSequence
     double lastSeen = double.NegativeInfinity, started, candidateAt, diffSince = double.NaN, lastChange = double.NegativeInfinity, xpMin = 1;
     int candidateFrames, sameRun;
     bool countedInitial;
+    public bool PopupCounted => Active && countedInitial;
     public bool Active { get; private set; }
     public int Additions { get; private set; }
     public string Debug => $"stable={stable?.Count}:{string.Join(',', stable?.Select(x => x.HasMultiplier ? x.DigitInk : 0) ?? [])} candidate={candidateFrames} xpMin={xpMin:F3} diff={diffSince:F2} lastChange={lastChange:F2}";

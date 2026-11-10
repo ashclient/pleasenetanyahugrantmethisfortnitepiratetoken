@@ -67,7 +67,7 @@ internal sealed class ReplayMonitor(string dataPath,DateTimeOffset from)
             catch(OperationCanceledException) when(token.IsCancellationRequested) { throw; }
             catch(Exception e) { retryAfter[fingerprint]=now.AddMinutes(5);Status="Replay check failed: "+e.Message; File.AppendAllText(Path.Combine(dataPath,"replay-errors.log"),$"{now:O} {file.Name}: {e.Message}{Environment.NewLine}");return null; }
         }
-        if(!retryAfter.Any()) Status="Replay check: waiting for a completed match · Record Replays must be enabled";
+        // Keep the last correction/review message visible until a new file is checked.
         return null;
     }
     public void Report(string text) => Status=text;

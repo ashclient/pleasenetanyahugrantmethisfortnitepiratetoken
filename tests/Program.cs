@@ -174,4 +174,28 @@ Check(lobbyTracker.Current?.Chests==1 && !lobbyTracker.InLobby,"Delayed old lobb
 var japaneseLobbyLedger=new Ledger();var japaneseLobbyTracker=new Tracker(japaneseLobbyLedger);
 japaneseLobbyTracker.Process(Opening(),time);japaneseLobbyTracker.Process(Lobby(5,true),time.AddSeconds(5));japaneseLobbyTracker.Process(Lobby(5.7,true),time.AddSeconds(5.7));
 Check(japaneseLobbyTracker.Current is null && japaneseLobbyTracker.InLobby && japaneseLobbyLedger.Totals["Chest"]==1,"Japanese lobby tabs and Ready panel reset match count");
+
+var withEmpty=new Ledger {Matches=[new MatchRecord {Started=time,Ended=time.AddSeconds(120),Events=[new(time.AddSeconds(10),"Chest","live")]},new MatchRecord {Started=time.AddSeconds(115)}]};
+var emptyFix=ReplayReconciliation.Apply(withEmpty,R("with-empty-next-game",3,2));
+Check(emptyFix.Changed && withEmpty.Totals["Chest"]==3 && withEmpty.Matches[1].Events.Count==0,"Replay prefers real chest evidence over overlapping empty next-match record");
+var splitGame=new Ledger {Matches=[new MatchRecord {Started=time,Ended=time.AddSeconds(30),Events=[new(time.AddSeconds(10),"Chest","live")]},new MatchRecord {Started=time.AddSeconds(35),Ended=time.AddSeconds(120),Events=[new(time.AddSeconds(50),"Chest","live")]}]};
+Check(ReplayReconciliation.Apply(splitGame,R("split-game",5,3)).Changed && splitGame.Totals["Chest"]==5 && splitGame.Matches.All(m=>m.ReplaySessionId=="split-game"),"Split records from one replay reconcile as a group without adding five on top of live counts");
+Check(!ReplayReconciliation.Apply(splitGame,R("split-game",5,3)).Changed && splitGame.Totals["Chest"]==5,"Grouped replay fragments stay idempotent");
+var crossing=new Ledger {Matches=[new MatchRecord {Started=time.AddMinutes(-2),Ended=time.AddSeconds(120),Events=[new(time.AddSeconds(-90),"Chest","previous game"),new(time.AddSeconds(10),"Chest","new game")]}]};
+Check(!ReplayReconciliation.Apply(crossing,R("mixed-history",5)).Changed && crossing.Totals["Chest"]==2,"Mixed-game history remains flagged instead of guessing");
+Observation[] Rare(double t,string label="レア宝箱",string? xp="+900 XP") => [new("rare",0,0,"rare-pass",time.AddSeconds(t)),new(label,.7,.34,"rare-ocr",time.AddSeconds(t)),new(xp??"",.7,.29,"rare-ocr",time.AddSeconds(t))];
+Observation[] NoRare(double t) => [new("rare",0,0,"rare-pass",time.AddSeconds(t))];
+int FinishRare(RareChestBackup b) {int n=0;foreach(double t in new[]{2d,2.3,2.7}) n+=b.Update(NoRare(t),time.AddSeconds(t),false,0);return n;}
+var rb=new RareChestBackup();rb.Update(Rare(0),time,false,0);rb.Update(Rare(.3),time.AddSeconds(.3),false,0);
+Check(FinishRare(rb)==1,"Japanese rare-label and XP backup counts a missed popup once after it ends");
+var coveredRare=new RareChestBackup();coveredRare.Update(Rare(0,"RARE CHEST"),time,false,0);coveredRare.Update(Rare(.3,"RARE CHEST"),time.AddSeconds(.3),true,1);
+Check(FinishRare(coveredRare)==0,"Rare popup already counted visually is never added by the backup");
+var earlyVision=new RareChestBackup();earlyVision.Update([],time,false,1);earlyVision.Update(Rare(.2),time.AddSeconds(.2),false,0);earlyVision.Update(Rare(.5),time.AddSeconds(.5),false,0);
+Check(FinishRare(earlyVision)==0,"Vision event arriving before delayed rare OCR suppresses duplicate backup");
+var noXpRare=new RareChestBackup();noXpRare.Update(Rare(0,xp:null),time,false,0);noXpRare.Update(Rare(.3,xp:null),time.AddSeconds(.3),false,0);
+Check(FinishRare(noXpRare)==0,"Rare name in inventory without XP cannot count");
+var questRare=new RareChestBackup();questRare.Update(Rare(0,"Search rare chests 0/5"),time,false,0);questRare.Update(Rare(.3,"Search rare chests 0/5"),time.AddSeconds(.3),false,0);
+Check(FinishRare(questRare)==0,"Rare-chest quest wording cannot count");
+var multRare=new RareChestBackup();multRare.Update(Rare(0,"レアな宝箱 X2","+1800 XP"),time,false,0);multRare.Update(Rare(.3,"レアな宝箱 X2","+1800 XP"),time.AddSeconds(.3),false,0);multRare.Update(Rare(.8,"レアな宝箱 X3","+2700 XP"),time.AddSeconds(.8),false,0);multRare.Update(Rare(1.1,"レアな宝箱 X3","+2700 XP"),time.AddSeconds(1.1),false,0);
+Check(FinishRare(multRare)==2,"Rare backup counts observed X2-to-X3 change without inventing unseen initial openings");
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");

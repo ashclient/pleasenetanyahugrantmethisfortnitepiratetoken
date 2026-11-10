@@ -62,15 +62,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "v0.4.1-build.${{ github.run_number }}"
+          $tag = "v0.4.2-build.${{ github.run_number }}"
           $notes = @'
-          The live match counter now clears to zero when the lobby is confirmed, preserving the previous match in history and lifetime totals. English/Japanese lobby navigation plus the lower Play/Ready panel must be present in two fresh screen samples; an in-match Return to lobby button is not enough. A late replay correction updates the finished match without putting its old count back on the overlay. Repeated lobby frames do not create empty matches. Waiting/bus detection remains a fallback for the next game.
+          English is now the default HUD language for new installs. Saved selections, including Japanese, are preserved.
 
-          The dedicated match reader now also reads full-screen lobby UI. Existing live chest matching, transparent overlay, Alt+T, rewards and completed-replay checking are retained. Record Replays must be enabled for after-match destroyed-chest reconciliation; live gameplay needs Windowed Fullscreen and the selected Windows OCR language feature. Real Japanese lobby capture and real completed replay attribution still need verification on the player PC.
+          Adds an independent focused text/XP backup for rare chests (English RARE CHEST and Japanese レア宝箱/レアな宝箱/レアチェスト). It requires stable named-chest text plus nearby XP, waits for the notification to finish, and suppresses itself if the visual detector handled that popup. Existing fast normal-chest detection is unchanged. This conservative backup can still miss partially recognized mixed stacks and requires the selected Windows OCR language feature. Synthetic English Windows OCR and Japanese parsing are tested; actual Japanese rare-chest capture still needs validation.
 
-          Checks include synthetic lobby lifecycle regressions, delayed frames, false menu/quest cues, late replay correction, packaged English Windows lobby OCR/reset, existing match/reconciliation checks, 10 recorded English live chest sequences, Japanese screenshot tests, overlay transparency/layout, click-through and Alt+T. Japanese Windows OCR integration is skipped if unavailable on the runner.
+          Fixes the reported replay-overlap review condition when a populated match overlaps an empty waiting-room/next-match record. Populated fragments fully within one replay can be linked as a group; only the aggregate missing deficit is added. Histories crossing different game time ranges remain flagged. Broken chests are still checked after the replay finishes, not immediately. Detailed local replay-diagnosis.json is included by Save diagnosis, and the last review/result stays visible. Real completed replay attribution still needs verification with a player replay.
 
-          ReplayWorkerSource.zip contains the independent GPL-3.0-or-later worker's complete corresponding source and notices and is also extractable from the tray. No game memory access, injection, replay modification or automatic uploads.
+          Keeps lobby reset, lifetime history, transparent icons, Alt+T, rewards and bundled independent replay worker. Enable Fortnite Record Replays for after-match corrections. Complete worker source/notices are in ReplayWorkerSource.zip and extractable from the tray. No game memory access, injection or automatic uploads.
           '@
           $notes | Set-Content release-notes.txt
           gh release create $tag dist/TreasureLedger.exe dist/SHA256SUMS.txt worker-dist/ReplayWorkerSource.zip --target '${{ github.sha }}' --title "Treasure Ledger $tag" --notes-file release-notes.txt --prerelease

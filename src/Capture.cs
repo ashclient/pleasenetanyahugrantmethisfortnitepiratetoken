@@ -18,6 +18,10 @@ public sealed class GameCapture
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
     private OcrEngine engine;
     private readonly OcrEngine matchEngine;
+    private readonly OcrEngine chestEngine;
+    private readonly RareChestBackup rareBackup = new();
+    private volatile bool chestBusy;
+    private DateTimeOffset nextChest;
     private string languageCode;
     private readonly JapaneseHudDetector japaneseGizmo = new("gizmo");
     private readonly FocusedVision vision = new();
@@ -29,14 +33,15 @@ public sealed class GameCapture
     private DateTimeOffset nextMatch;
     private readonly Queue<object> ocrTrace = new();
     private int metadataRound;
-    public string VisionSummary => vision.Summary;
+    public string VisionSummary => vision.Summary + " · " + rareBackup.Summary;
     public double VisionMilliseconds => vision.LastMilliseconds;
-    public object Diagnostic { get { lock (metadataLock) return new { engine = "focused-popup-sequence-v3.1", vision = vision.Summary, frames = vision.Trace, banners = vision.BannerTrace, context = vision.ContextTrace, samples = ocrTrace.ToArray(), matchError = LastMatchError }; } }
-    public GameCapture(string language) { engine = CreateEngine(language); matchEngine = CreateEngine(language); languageCode = language; }
+    public object Diagnostic { get { lock (metadataLock) return new { engine = "focused-popup-sequence-v4.2", rareBackup=rareBackup.Summary, chestError=LastChestError, vision = vision.Summary, frames = vision.Trace, banners = vision.BannerTrace, context = vision.ContextTrace, samples = ocrTrace.ToArray(), matchError = LastMatchError }; } }
+    public GameCapture(string language) { engine = CreateEngine(language); matchEngine = CreateEngine(language); chestEngine = CreateEngine(language); languageCode = language; }
     public string RecognitionNote => languageCode == "ja-JP" && !engine.RecognizerLanguage.LanguageTag.StartsWith("ja", StringComparison.OrdinalIgnoreCase)
         ? "Japanese OCR is unavailable; chest/gizmo visual detection is active. Automatic match resets and other Japanese rewards need Japanese OCR." : "";
     public string LastOcrError { get; private set; } = "";
     public string LastMatchError { get; private set; } = "";
+    public string LastChestError { get; private set; } = "";
     static OcrEngine CreateEngine(string language) => OcrEngine.TryCreateFromLanguage(new Language(language))
         ?? (language == "ja-JP" ? OcrEngine.TryCreateFromLanguage(new Language("en-US")) : null)
         ?? throw new InvalidOperationException($"{language} OCR is unavailable. Install its OCR language feature in Windows Settings → Time & language → Language & region, then retry. Tracking is paused until the selected language is available.");
@@ -75,6 +80,22 @@ public sealed class GameCapture
     {
         var result = vision.Process(source, at, languageCode);
         lock (metadataLock) while (metadata.Count > 0) result.Add(metadata.Dequeue());
+        int backupEvents=rareBackup.Update(result,at,vision.PopupCounted,result.Count(x=>x.Source=="event-chest"));
+        for(int n=0;n<backupEvents;n++) result.Add(new Observation("Rare chest · confirmed text + XP backup",.7,.32,"event-chest"));
+        if(!chestBusy && at>=nextChest)
+        {
+            chestBusy=true;nextChest=at.AddMilliseconds(220);var copy=new Bitmap(source);
+            _=Task.Run(async()=>
+            {
+                try
+                {
+                    using(copy) EnqueueSample("rare-chest",at,(await ReadChestLabels(copy)).Select(x=>x with {CapturedAt=at}).ToList(),"rare-pass");
+                    LastChestError="";
+                }
+                catch(Exception e) {LastChestError=e.Message;copy.Dispose();}
+                finally {chestBusy=false;}
+            });
+        }
         // A dedicated, small OCR task reads the pregame/bus header. Reward OCR
         // and its slower full-screen scans cannot hold up match resets.
         if (!matchBusy && at >= nextMatch)
@@ -127,6 +148,11 @@ public sealed class GameCapture
         result.Add(new Observation("Lobby sample",0,0,"lobby-pass"));
         result.AddRange((await ReadRegion(source,new Rectangle(0,0,source.Width,source.Height),false,1920,matchEngine)).Select(x=>x with {Source="lobby-ocr"}));
         return result;
+    }
+    internal async Task<List<Observation>> ReadChestLabels(Bitmap source)
+    {
+        var region=new Rectangle((int)(source.Width*.53),(int)(source.Height*.20),(int)(source.Width*.33),(int)(source.Height*.30));
+        return (await ReadRegion(source,region,true,1300,chestEngine)).Select(x=>x with {Source="rare-ocr"}).ToList();
     }
     void EnqueueSample(string lane, DateTimeOffset at, List<Observation> items, string marker)
     {

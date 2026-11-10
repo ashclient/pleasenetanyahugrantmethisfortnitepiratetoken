@@ -90,6 +90,12 @@ static class Program
                 matchTracker.ReplayApplied(beforeLobby);
                 if(!matchTracker.InLobby || matchTracker.Current is not null || matchLedger.Totals.GetValueOrDefault("Chest")!=2)
                     throw new Exception("Packaged lobby OCR/reset integration failed: "+string.Join(" | ",lobbyLines.Select(x=>x.Text)));
+                if(new Preferences().Language!="en-US" || JsonSerializer.Deserialize<Preferences>("{\"Language\":\"ja-JP\"}")!.Language!="ja-JP") throw new Exception("Default/saved HUD language regression");
+                using var rareSample=new Bitmap(1600,900);
+                using(var g=Graphics.FromImage(rareSample))
+                {g.Clear(Color.FromArgb(20,40,60));using var font=new Font("Segoe UI",28,FontStyle.Bold);g.DrawString("+900 XP",font,Brushes.White,1000,220);g.DrawString("RARE CHEST",font,Brushes.LightCyan,1000,270);}
+                var rareLines=Task.Run(()=>capture.ReadChestLabels(rareSample)).GetAwaiter().GetResult();
+                if(!RareChestBackup.ReadEvidence(rareLines,out _,out _)) throw new Exception("Rare-chest focused OCR failed: "+string.Join(" | ",rareLines.Select(x=>x.Text)));
                 using var japaneseSample = new Bitmap(1600, 900);
                 using (var g = Graphics.FromImage(japaneseSample))
                 {
@@ -115,7 +121,7 @@ static class Program
                     japaneseReport = "SKIPPED: Japanese OCR integration; this test machine lacks the Japanese OCR feature. Japanese parsing tests are separate; live Japanese game capture still needs validation.";
                     File.WriteAllText("japanese-ocr.txt", japaneseReport);
                 }
-                File.WriteAllText("smoke-test.txt", "PASS: bundled replay worker hash, extraction, process launch, parser construction, container classifier and corresponding source archive; per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR reads the synthetic metadata text and dedicated waiting header; short-match and lobby resets preserve lifetime totals; late replay cannot restore the lobby counter; live chest counts are checked against recorded sequences.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Encrypted replay parsing and destroyed-chest attribution still need a real completed replay from the player PC.");
+                File.WriteAllText("smoke-test.txt", "PASS: bundled replay worker hash, extraction, process launch, parser construction, container classifier and corresponding source archive; per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR reads the synthetic metadata text and dedicated waiting header; short-match and lobby resets preserve lifetime totals; late replay cannot restore the lobby counter; focused rare-chest text/XP OCR; English default and saved Japanese preference preserved; live chest counts are checked against recorded sequences.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Encrypted replay parsing and destroyed-chest attribution still need a real completed replay from the player PC.");
                 return 0;
             }
             catch (Exception e) { File.WriteAllText("smoke-test.txt", e.ToString()); return 1; }
@@ -131,7 +137,7 @@ public sealed class Preferences
 {
     public bool ReplayChecking { get; set; } = true;
     public string? ReplayFolder { get; set; }
-    public string Language { get; set; } = "ja-JP";
+    public string Language { get; set; } = "en-US";
     public int X { get; set; } = 24;
     public int Y { get; set; } = 70;
     public bool ClickThrough { get; set; }
@@ -239,6 +245,7 @@ public sealed class LedgerApplication : ApplicationContext
             if(exiting || !preferences.ReplayChecking || summary is null) return;
             if(summary.Started.AddSeconds(summary.DurationSeconds) < ledger.ReplayTrackingFrom!.Value) { replayMonitor.Report("Replay predates automatic checking; history unchanged"); return; }
             var correction=ReplayReconciliation.Apply(ledger,summary);
+            File.WriteAllText(Path.Combine(store.DirectoryPath,"replay-diagnosis.json"),JsonSerializer.Serialize(new { replay=summary,decision=correction,matches=ledger.Matches.Select(m=>new {m.Id,m.Started,m.Ended,m.ReplaySessionId,chests=m.Events.Where(e=>e.Kind=="Chest")}) }));
             replayMonitor.Report(correction.Message);
             if(correction.MatchId.HasValue) tracker.ReplayApplied(correction.MatchId.Value);
             if(correction.Changed) store.Save(ledger);
@@ -278,7 +285,7 @@ public sealed class LedgerApplication : ApplicationContext
                 latest = await Task.Run(() => reader.ReadFast(frame, capturedAt!.Value));
                 if (exiting) return;
                 if (tracker.Process(latest, capturedAt!.Value)) store.Save(ledger);
-                status = "Watching Fortnite · " + reader.VisionSummary + " · " + tracker.LastDecision + (string.IsNullOrEmpty(reader.RecognitionNote) ? "" : " · " + reader.RecognitionNote) + (string.IsNullOrEmpty(reader.LastOcrError) ? "" : " · OCR error: " + reader.LastOcrError) + (string.IsNullOrEmpty(reader.LastMatchError) ? "" : " · Match OCR error: " + reader.LastMatchError);
+                status = "Watching Fortnite · " + reader.VisionSummary + " · " + tracker.LastDecision + (string.IsNullOrEmpty(reader.RecognitionNote) ? "" : " · " + reader.RecognitionNote) + (string.IsNullOrEmpty(reader.LastOcrError) ? "" : " · OCR error: " + reader.LastOcrError) + (string.IsNullOrEmpty(reader.LastMatchError) ? "" : " · Match OCR error: " + reader.LastMatchError) + (string.IsNullOrEmpty(reader.LastChestError) ? "" : " · Rare-chest OCR error: " + reader.LastChestError);
             }
         }
         catch (Exception e) { status = "Recognition error: " + e.Message; }
@@ -305,6 +312,8 @@ public sealed class LedgerApplication : ApplicationContext
         latestFrame.Save(Path.Combine(folder, "game-frame.png"), System.Drawing.Imaging.ImageFormat.Png);
         File.WriteAllText(Path.Combine(folder, "recognition.json"), JsonSerializer.Serialize(new { capturedAt, language = preferences.Language, status, phase = tracker.Phase, matchId = tracker.Current?.Id, matchStarted = tracker.Current?.Started, matchEnded = tracker.Current?.Ended, recognitionNote = capture?.RecognitionNote, ocrError = capture?.LastOcrError, decision = tracker.LastDecision, lines = latest }, new JsonSerializerOptions { WriteIndented = true }));
         File.WriteAllText(Path.Combine(folder, "live-trace.json"), JsonSerializer.Serialize(capture?.Diagnostic));
+        var replayDiagnosis=Path.Combine(store.DirectoryPath,"replay-diagnosis.json");
+        if(File.Exists(replayDiagnosis)) File.Copy(replayDiagnosis,Path.Combine(folder,"replay-diagnosis.json"),true);
         Process.Start(new ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
     }
     void SavePreferences() => File.WriteAllText(preferencesPath, JsonSerializer.Serialize(preferences));
@@ -360,7 +369,7 @@ public sealed class Dashboard : Form
         replayStatus.Text = replayMessage;
         totals.Text = $"{ledger.Totals.GetValueOrDefault("Chest"):N0} chests tracked   ·   {ledger.Matches.Count:N0} matches   ·   {ledger.Totals.Where(x => x.Key != "Chest").Sum(x => x.Value):N0} rewards";
         matches.BeginUpdate(); matches.Items.Clear();
-        foreach (var m in ledger.Matches.OrderByDescending(m=>m.Started).Take(100)) matches.Items.Add(new ListViewItem([m.Started.LocalDateTime.ToString("g"), m.Chests.ToString(), m.ReplayDestroyedCount?.ToString() ?? "—", m.Events.Count(x => x.Kind != "Chest").ToString(), m.ReplayCountLower ? "Replay discrepancy" : m.ReplaySessionId is not null ? "Replay checked" : m.Partial ? "Partial" : m.Ended.HasValue ? "Finished" : m == current ? "Current" : "Previous run"]));
+        foreach (var m in ledger.Matches.OrderByDescending(m=>m.Started).Take(100)) matches.Items.Add(new ListViewItem([m.Started.LocalDateTime.ToString("g"), m.Chests.ToString(), m.ReplayDestroyedCount?.ToString() ?? "—", m.Events.Count(x => x.Kind != "Chest").ToString(), m.ReplayCountLower ? "Replay discrepancy" : m.ReplayFragment ? "Replay fragment" : m.ReplaySessionId is not null ? "Replay checked" : m.Partial ? "Partial" : m.Ended.HasValue ? "Finished" : m == current ? "Current" : "Previous run"]));
         matches.EndUpdate(); rewards.BeginUpdate(); rewards.Items.Clear();
         foreach (var kind in Tracker.Rewards) rewards.Items.Add(new ListViewItem([kind, ledger.Totals.GetValueOrDefault(kind).ToString(), (current?.Events.Count(x => x.Kind == kind) ?? 0).ToString()]));
         rewards.EndUpdate(); diagnostics.Text = string.Join(Environment.NewLine, latest.Select(x => x.Text));

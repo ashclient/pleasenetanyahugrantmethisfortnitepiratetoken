@@ -27,6 +27,7 @@ internal sealed class FocusedVision : IDisposable
     public string Summary { get; private set; } = "Waiting for frames";
     public double LastMilliseconds { get; private set; }
     public int LastLineCount { get; private set; }
+    public bool PopupCounted => sequence.PopupCounted;
     public string Debug { get; private set; } = "";
     public float[] LastMask { get; private set; } = [];
     public IReadOnlyCollection<object> Trace { get { lock (diagnosticLock) return trace.ToArray(); } }

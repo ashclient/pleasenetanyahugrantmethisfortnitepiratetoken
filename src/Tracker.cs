@@ -13,6 +13,7 @@ public sealed class MatchRecord
     public DateTimeOffset? Ended { get; set; }
     public bool Partial { get; set; }
     public string? ReplaySessionId { get; set; }
+    public bool ReplayFragment { get; set; }
     public int? ReplayChestCount { get; set; }
     public int? ReplayDestroyedCount { get; set; }
     public bool ReplayCountLower { get; set; }

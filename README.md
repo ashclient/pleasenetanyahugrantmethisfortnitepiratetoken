@@ -8,7 +8,7 @@ Download **TreasureLedger.exe** from [Releases](https://github.com/ashclient/ple
 
 1. Exit any old tracker from its tray menu, then run the new exe.
 2. Run Fortnite in **Windowed Fullscreen**, with the HUD and XP notifications visible.
-3. Choose **Japanese / English** from the tray menu or history window.
+3. Choose **English / Japanese** from the tray menu or history window.
 4. The overlay starts click-through. **Alt+T** unlocks dragging and clicks; press it again to lock. Right-click while unlocked for settings. The tray menu always remains available.
 
 The chest icon shows **this match / total tracked**. Gizmo, loading-screen and music icons show total tracked awards; other nonzero reward categories appear automatically. The background is transparent and counts wrap as they grow.
@@ -16,6 +16,10 @@ The chest icon shows **this match / total tracked**. Gizmo, loading-screen and m
 ## Live counting
 
 The live detector normalizes the screen to 1280 × 720 and analyzes a 360 × 202 XP-popup region using OpenCV template correlation. It follows popup content across frames: added chest lines and multiplier changes (X2/X3) can add an opening without waiting for the entire popup to disappear. Static text, sprite-level lines, and multiplier flicker must not add counts. Frames are sampled independently of Windows OCR, targeting about 15 frames/second; actual cadence depends on capture and CPU time.
+
+English is the default for new installs; existing saved language choices remain unchanged.
+
+A dedicated focused OCR backup reads English/Japanese rare-chest names plus nearby XP independently of the glyph template/color. Stable evidence is retained until the toast ends, then added only if the visual detector did not handle the popup. This can delay a backup count by a few seconds. It is conservative on mixed stacks and is not a general sprite-XP counter: ammo boxes and unrelated XP must not count as chests. Actual Japanese rare-chest gameplay still needs validation.
 
 Windows OCR runs separately for match banners and reward names. Known gizmo names include Portable Extractor, Lucky/Sprite Locator, Extraction Site Booster, Extraction Accelerator, and Golden Firework, with Japanese aliases. An award banner is required: merely seeing or equipping a gizmo does not count it. Gizmo counting does not depend on the icon above its category label. Not every localized variant has a real screenshot test yet.
 
@@ -31,7 +35,7 @@ Turn on **Fortnite Settings → Game → Replays → Record Replays**. The app c
 
 A separate bundled reader uses [LED-N's replay parser](https://github.com/LED-N/Fortnite-ChestCounter/tree/1f387987737cfd606611d5b8d294d5db04af9eab) to identify the recording player and containers opened or destroyed by that player, including the parser's support-destruction/explosion path. It reads completed replay files only. Encrypted replays usually lack the usable key until recording ends, so destroyed chests **are added after the match, not immediately**. File writing, parsing and the 15-second polling interval add delay.
 
-Only the replay-total deficit is added to the matching saved match, rather than adding the entire replay or every destroyed chest again. History's Broken column shows the replay's destroyed count. A session is applied once even across restarts. Rewards keep using live detection. Ambiguous time matches, missing player identity, unreadable files and unsupported game versions do not change counts. A replay total below the saved live total is flagged for review; live history is not deleted. Mid-game app restarts and overwritten/missing replay files can still leave gaps.
+Only the replay-total deficit is added to the matching saved match, rather than adding the entire replay or every destroyed chest again. History's Broken column shows the replay's destroyed count. A session is applied once even across restarts. Rewards keep using live detection. Empty waiting-room records no longer override real chest-event evidence. Fully contained populated fragments may be checked as one group while preserving their rows. Histories mixing events from different games, missing player identity, unreadable files and unsupported game versions do not change counts. A replay total below the saved live total is flagged for review; live history is not deleted. Mid-game app restarts and overwritten/missing replay files can still leave gaps.
 
 The worker is an independent GPL-3.0-or-later command-line program using MIT parser code and the GPL OozSharp decompressor. Releases include **ReplayWorkerSource.zip** with its exact complete corresponding source and notices; the tray's Replay worker source & licenses action also extracts it locally. See [worker build instructions](replay-worker/README.md). Main/worker communication uses a file path and JSON; no game process access or replay modification occurs.
 
@@ -44,6 +48,7 @@ Open history/settings from the tray and select **Save diagnosis**, preferably wi
 Saving writes these local files into `%LOCALAPPDATA%\TreasureLedger\Diagnostics`:
 
 - `live-trace.json`: recent popup masks, frame timing, detector decisions, reward-banner images, low-resolution screen context and timestamped OCR samples.
+- `replay-diagnosis.json`: latest replay summary, matching decision and saved match/event time ranges, when a replay has been checked.
 - `recognition.json`: selected language, latest OCR text and status.
 - `game-frame.png`: the last full captured game frame.
 

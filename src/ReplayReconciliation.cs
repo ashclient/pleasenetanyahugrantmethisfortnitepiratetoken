@@ -15,25 +15,36 @@ public static class ReplayReconciliation
         var end = replay.Started.AddSeconds(replay.DurationSeconds);
         if(replay.Chests.Any(c=>!double.IsFinite(c.Seconds) || c.Seconds < 0 || c.Seconds > replay.DurationSeconds + 120))
             return new(false,"Replay skipped: invalid chest timing");
-        // Match by time, never by the number of chests. Refuse ambiguous histories
-        // rather than adding the replay as another copy of the same game.
+        // Prefer actual chest-event evidence over empty staging/lobby records.
+        // Several fully contained records can be fragments of the same game
+        // after an earlier reset bug; link them without deleting their history.
         var overlap = ledger.Matches.Where(m => m.Started <= end.AddSeconds(15)
-            && (m.Ended ?? DateTimeOffset.MaxValue) >= replay.Started.AddMinutes(-2)).ToList();
-        var candidates = overlap.Where(m => m.ReplaySessionId is null && m.Started >= replay.Started.AddMinutes(-3)
-            && m.Events.Where(e=>e.Kind == "Chest").All(e=>e.At >= replay.Started.AddMinutes(-3) && e.At <= end.AddSeconds(15))).ToList();
-        if(candidates.Count > 1 || candidates.Count == 0 && overlap.Count > 0)
-            return new(false,"Replay needs review: match history overlaps more than one game; no counts changed");
-        var match = candidates.SingleOrDefault();
+            && (m.Ended ?? DateTimeOffset.MaxValue) >= replay.Started).ToList();
+        var eligible = overlap.Where(m => m.ReplaySessionId is null && m.Started >= replay.Started.AddMinutes(-3)).ToList();
+        bool Inside(LedgerEvent e) => e.At >= replay.Started.AddSeconds(-45) && e.At <= end.AddSeconds(15);
+        var populated = eligible.Where(m=>m.Chests>0 && m.Events.Where(e=>e.Kind=="Chest").All(Inside)).ToList();
+        bool mixed = overlap.Any(m=>m.Events.Any(e=>e.Kind=="Chest" && Inside(e)) && m.Events.Any(e=>e.Kind=="Chest" && !Inside(e)));
+        if(mixed || overlap.Any(m=>m.ReplaySessionId is not null))
+            return new(false,"Replay needs review: chest events cross match boundaries or overlap another checked replay; no counts changed");
+        var linked = populated.Count>0 ? populated : eligible.Where(m=>m.Chests==0).ToList();
+        if(populated.Count==0 && (linked.Count>1 || linked.Count==0 && overlap.Count>0))
+            return new(false,$"Replay needs review: {linked.Count} possible empty matches and no unique chest-event evidence; no counts changed");
+        var match = linked.OrderBy(m=>m.Started).FirstOrDefault();
         if(match is null)
         {
             match = new MatchRecord { Started = replay.Started, Ended = end };
-            ledger.Matches.Add(match);
+            ledger.Matches.Add(match); linked.Add(match);
         }
-        int visual = match.Chests, missing = Math.Max(0,replay.Chests.Count - visual);
+        int visual = linked.Sum(m=>m.Chests), missing = Math.Max(0,replay.Chests.Count - visual);
         // Add only the deficit. A broken chest might already have generated a
         // live notification, so adding every destroyed flag would double-count it.
         for(int n=0;n<missing;n++) match.Events.Add(new LedgerEvent(end,"Chest",$"Replay correction {replay.SessionId}: {replay.Chests.Count} total, {replay.Chests.Count(c=>c.Destroyed)} destroyed; live count was {visual}"));
-        match.ReplaySessionId = replay.SessionId;
+        foreach(var fragment in linked)
+        {
+            fragment.ReplaySessionId=replay.SessionId;
+            fragment.ReplayFragment=fragment!=match;
+            fragment.Ended??=end;
+        }
         match.ReplayChestCount = replay.Chests.Count;
         match.ReplayDestroyedCount = replay.Chests.Count(c=>c.Destroyed);
         match.ReplayCountLower = replay.Chests.Count < visual;
