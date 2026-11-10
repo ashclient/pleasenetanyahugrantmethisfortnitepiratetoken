@@ -24,6 +24,7 @@ internal sealed class FocusedVision : IDisposable
     public IReadOnlyCollection<object> BannerTrace { get { lock (diagnosticLock) return banners.ToArray(); } }
     public string Summary { get; private set; } = "Waiting for frames";
     public double LastMilliseconds { get; private set; }
+    public int LastLineCount { get; private set; }
     public float[] LastMask { get; private set; } = [];
     public IReadOnlyCollection<object> Trace { get { lock (diagnosticLock) return trace.ToArray(); } }
 
@@ -97,13 +98,13 @@ internal sealed class FocusedVision : IDisposable
         List<VisionLine> lines = []; Pattern? best = lockedPattern;
         if (values.Sum() >= 20)
         {
-            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, lockedPattern, language == "ja" ? .80 : lockedPattern.Width == 22 ? .85 : .75);
+            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, lockedPattern, language == "ja" ? .84 : lockedPattern.Width == 22 ? .85 : .75);
             else
             {
                 double score = 0;
                 foreach (var pattern in patterns.Where(p => p.Language == language))
                 {
-                    var candidates = FindLines(mask, blurred, pattern, language == "ja" ? .80 : pattern.Width == 22 ? .85 : .75);
+                    var candidates = FindLines(mask, blurred, pattern, language == "ja" ? .84 : pattern.Width == 22 ? .85 : .75);
                     double candidateScore = candidates.Select(c => c.Score).DefaultIfEmpty(0).Max();
                     if (candidateScore > score) { score = candidateScore; lines = candidates; best = pattern; }
                 }
@@ -121,6 +122,7 @@ internal sealed class FocusedVision : IDisposable
         int added = sequence.Update(seconds, lines, xp);
         if (!sequence.Active) lockedPattern = null;
         watch.Stop(); LastMilliseconds = watch.Elapsed.TotalMilliseconds;
+        LastLineCount = lines.Count;
         double maxScore = lines.Select(l => l.Score).DefaultIfEmpty(0).Max();
         Summary = $"{lines.Count} chest lines · score {maxScore:F2} · {LastMilliseconds:F0} ms";
         if (record)

@@ -60,7 +60,7 @@ internal static class LiveRegression
             using var vision = new FocusedVision(); int total = 0; var at = DateTimeOffset.UtcNow;
             var watch = Stopwatch.StartNew();
             for (int f = 0; f < 12; f++) total += vision.Process(image, at.AddMilliseconds(f * 67), "ja-JP").Count(x => x.Source == "event-chest");
-            watch.Stop(); Check(total == 1, $"Japanese screenshot at {scale:P0}: {total} opening(s) over 12 sampled frames; average {watch.Elapsed.TotalMilliseconds / 12:F1} ms; {vision.Summary}");
+            watch.Stop(); Check(total == 1 && vision.LastLineCount == 1, $"Japanese screenshot at {scale:P0}: {total} opening(s) over 12 sampled frames; average {watch.Elapsed.TotalMilliseconds / 12:F1} ms; {vision.Summary}");
             using (var g = Graphics.FromImage(image))
                 g.FillRectangle(Brushes.Black, (reference.fixtureX + reference.glyphX - 2) * scale, (reference.fixtureY + reference.glyphY - 2) * scale,
                     (reference.mask[0].Length + 4) * scale, (reference.mask.Length + 4) * scale);
