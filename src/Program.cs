@@ -271,7 +271,7 @@ public sealed class LedgerApplication : ApplicationContext
     void Refresh()
     {
         overlay.UpdateCounts(ledger, tracker.Current, paused ? "Paused" : status, preferences.Language);
-        dashboard?.UpdateState(ledger, tracker.Current, tracker.Phase, (paused ? "Paused" : status) + "\n" + (preferences.ReplayChecking ? replayMonitor.Status : "Replay check disabled"), latest, preferences.Language);
+        dashboard?.UpdateState(ledger, tracker.Current, tracker.Phase, paused ? "Paused" : status, latest, preferences.Language, preferences.ReplayChecking ? replayMonitor.Status : "Replay check disabled");
     }
     void OpenDashboard()
     {
@@ -302,7 +302,7 @@ public sealed class LedgerApplication : ApplicationContext
 
 public sealed class Dashboard : Form
 {
-    readonly Label status = new(), totals = new();
+    readonly Label status = new(), totals = new(), replayStatus = new() { Dock=DockStyle.Fill, AutoEllipsis=true };
     readonly ListView matches = new(), rewards = new();
     readonly TextBox diagnostics = new();
     readonly ComboBox language = new();
@@ -331,16 +331,17 @@ public sealed class Dashboard : Form
         root.Controls.Add(actions);
         ConfigureList(matches, ["Match started", "Chests", "Broken", "Rewards", "State"]); root.Controls.Add(matches);
         ConfigureList(rewards, ["Reward", "Total tracked", "This match"]); root.Controls.Add(rewards);
-        root.Controls.Add(new Label { Text = "Live recognition · Save diagnosis retains the last notification samples", AutoSize = true });
+        root.Controls.Add(replayStatus);
         diagnostics.Multiline = true; diagnostics.ReadOnly = true; diagnostics.ScrollBars = ScrollBars.Vertical; diagnostics.Dock = DockStyle.Fill; root.Controls.Add(diagnostics);
         root.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "Counts are estimates from visible notifications, starting when this app runs. Use Windowed Fullscreen. Completed replay checks add missed chests after each match; turn on Record Replays in Fortnite. Alt+T unlocks/locks the transparent overlay; right-click while unlocked for controls. Save diagnosis exports the preceding notification-area frames and recognition trace locally, even after a missed popup disappears.", ForeColor = Color.FromArgb(158, 159, 178) });
     }
     static void ConfigureList(ListView view, string[] columns)
     { view.Dock = DockStyle.Fill; view.View = View.Details; view.FullRowSelect = true; view.BackColor = Color.FromArgb(27, 28, 40); view.ForeColor = Color.White; view.BorderStyle = BorderStyle.None; foreach (var c in columns) view.Columns.Add(c, c.Contains("started") || c == "Reward" ? 270 : 130); }
-    public void UpdateState(Ledger ledger, MatchRecord? current, string phase, string message, List<Observation> latest, string selectedLanguage)
+    public void UpdateState(Ledger ledger, MatchRecord? current, string phase, string message, List<Observation> latest, string selectedLanguage, string replayMessage)
     {
         updating = true; language.SelectedIndex = selectedLanguage == "ja-JP" ? 0 : 1; updating = false;
         status.Text = message + "\n" + phase;
+        replayStatus.Text = replayMessage;
         totals.Text = $"{ledger.Totals.GetValueOrDefault("Chest"):N0} chests tracked   ·   {ledger.Matches.Count:N0} matches   ·   {ledger.Totals.Where(x => x.Key != "Chest").Sum(x => x.Value):N0} rewards";
         matches.BeginUpdate(); matches.Items.Clear();
         foreach (var m in ledger.Matches.OrderByDescending(m=>m.Started).Take(100)) matches.Items.Add(new ListViewItem([m.Started.LocalDateTime.ToString("g"), m.Chests.ToString(), m.ReplayDestroyedCount?.ToString() ?? "—", m.Events.Count(x => x.Kind != "Chest").ToString(), m.ReplayCountLower ? "Replay discrepancy" : m.ReplaySessionId is not null ? "Replay checked" : m.Partial ? "Partial" : m.Ended.HasValue ? "Finished" : m == current ? "Current" : "Previous run"]));
