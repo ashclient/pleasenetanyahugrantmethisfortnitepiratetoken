@@ -17,21 +17,26 @@ public sealed class GameCapture
     [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
     private OcrEngine engine;
+    private readonly OcrEngine matchEngine;
     private string languageCode;
     private readonly JapaneseHudDetector japaneseGizmo = new("gizmo");
     private readonly FocusedVision vision = new();
     private readonly Queue<Observation> metadata = new();
     private readonly object metadataLock = new();
     private volatile bool metadataBusy;
+    private volatile bool matchBusy;
     private DateTimeOffset nextMetadata;
+    private DateTimeOffset nextMatch;
+    private readonly Queue<object> ocrTrace = new();
     private int metadataRound;
     public string VisionSummary => vision.Summary;
     public double VisionMilliseconds => vision.LastMilliseconds;
-    public object Diagnostic => new { engine = "focused-popup-sequence-v3", vision = vision.Summary, frames = vision.Trace, banners = vision.BannerTrace };
-    public GameCapture(string language) { engine = CreateEngine(language); languageCode = language; }
+    public object Diagnostic { get { lock (metadataLock) return new { engine = "focused-popup-sequence-v3.1", vision = vision.Summary, frames = vision.Trace, banners = vision.BannerTrace, context = vision.ContextTrace, samples = ocrTrace.ToArray(), matchError = LastMatchError }; } }
+    public GameCapture(string language) { engine = CreateEngine(language); matchEngine = CreateEngine(language); languageCode = language; }
     public string RecognitionNote => languageCode == "ja-JP" && !engine.RecognizerLanguage.LanguageTag.StartsWith("ja", StringComparison.OrdinalIgnoreCase)
-        ? "Japanese OCR is unavailable; chest/gizmo visual detection is active. Other Japanese reward categories need Japanese OCR." : "";
+        ? "Japanese OCR is unavailable; chest/gizmo visual detection is active. Automatic match resets and other Japanese rewards need Japanese OCR." : "";
     public string LastOcrError { get; private set; } = "";
+    public string LastMatchError { get; private set; } = "";
     static OcrEngine CreateEngine(string language) => OcrEngine.TryCreateFromLanguage(new Language(language))
         ?? (language == "ja-JP" ? OcrEngine.TryCreateFromLanguage(new Language("en-US")) : null)
         ?? throw new InvalidOperationException($"{language} OCR is unavailable. Install its OCR language feature in Windows Settings → Time & language → Language & region, then retry. Tracking is paused until the selected language is available.");
@@ -70,6 +75,27 @@ public sealed class GameCapture
     {
         var result = vision.Process(source, at, languageCode);
         lock (metadataLock) while (metadata.Count > 0) result.Add(metadata.Dequeue());
+        // A dedicated, small OCR task reads the pregame/bus header. Reward OCR
+        // and its slower full-screen scans cannot hold up match resets.
+        if (!matchBusy && at >= nextMatch)
+        {
+            matchBusy = true; nextMatch = at.AddMilliseconds(600);
+            var copy = new Bitmap(source);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using (copy)
+                    {
+                        var items = (await ReadMatchHeader(copy)).Select(x => x with { CapturedAt = at }).ToList();
+                        EnqueueSample("match", at, items, "match-pass");
+                    }
+                    LastMatchError = "";
+                }
+                catch (Exception e) { LastMatchError = e.Message; copy.Dispose(); }
+                finally { matchBusy = false; }
+            });
+        }
         if (!metadataBusy && at >= nextMetadata)
         {
             metadataBusy = true; nextMetadata = at.AddMilliseconds(450);
@@ -81,7 +107,7 @@ public sealed class GameCapture
                     using (copy)
                     {
                         var items = await ReadMetadata(copy);
-                        lock (metadataLock) { metadata.Enqueue(new Observation("Metadata sample", 0, 0, "metadata-pass")); foreach (var item in items) metadata.Enqueue(item); }
+                        EnqueueSample("rewards", at, items.Select(x => x with { CapturedAt = at }).ToList(), "metadata-pass");
                     }
                     LastOcrError = "";
                 }
@@ -90,6 +116,21 @@ public sealed class GameCapture
             });
         }
         return result;
+    }
+    internal async Task<List<Observation>> ReadMatchHeader(Bitmap source)
+    {
+        var region = new Rectangle((int)(source.Width * .28), (int)(source.Height * .01), (int)(source.Width * .44), (int)(source.Height * .20));
+        return (await ReadRegion(source, region, false, 1400, matchEngine)).Select(x => x with { Source = "match-ocr" }).ToList();
+    }
+    void EnqueueSample(string lane, DateTimeOffset at, List<Observation> items, string marker)
+    {
+        lock (metadataLock)
+        {
+            metadata.Enqueue(new Observation("OCR sample", 0, 0, marker, at));
+            foreach (var item in items) metadata.Enqueue(item);
+            ocrTrace.Enqueue(new { lane, at, lines = items });
+            while (ocrTrace.Count > 80) ocrTrace.Dequeue();
+        }
     }
     // Synchronous metadata entry point used by packaged OCR checks and diagnostics.
     public Task<List<Observation>> Read(Bitmap source) => ReadMetadata(source, true);
@@ -111,7 +152,7 @@ public sealed class GameCapture
         }
         return result;
     }
-    async Task<List<Observation>> ReadRegion(Bitmap source, Rectangle region, bool highContrast, int targetWidth)
+    async Task<List<Observation>> ReadRegion(Bitmap source, Rectangle region, bool highContrast, int targetWidth, OcrEngine? recognizer = null)
     {
         double scale = Math.Min(highContrast ? 4.0 : 3.0, Math.Min((double)targetWidth / region.Width, (OcrEngine.MaxImageDimension - 1.0) / Math.Max(region.Width, region.Height)));
         using var image = new Bitmap(Math.Max(1, (int)(region.Width * scale)), Math.Max(1, (int)(region.Height * scale)), PixelFormat.Format32bppArgb);
@@ -133,7 +174,7 @@ public sealed class GameCapture
                 bytes[i] = bytes[i + 1] = bytes[i + 2] = value; bytes[i + 3] = 255;
             }
         using var software = SoftwareBitmap.CreateCopyFromBuffer(bytes.AsBuffer(), BitmapPixelFormat.Bgra8, image.Width, image.Height, BitmapAlphaMode.Ignore);
-        var result = await engine.RecognizeAsync(software);
+        var result = await (recognizer ?? engine).RecognizeAsync(software);
         return result.Lines.Where(line => line.Words.Count > 0).Select(line => new Observation(line.Text,
             (region.X + line.Words.Average(w => w.BoundingRect.X + w.BoundingRect.Width / 2) / scale) / source.Width,
             (region.Y + line.Words.Average(w => w.BoundingRect.Y + w.BoundingRect.Height / 2) / scale) / source.Height)).ToList();

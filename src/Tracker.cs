@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace TreasureLedger;
 
-public record Observation(string Text, double X, double Y, string Source = "ocr");
+public record Observation(string Text, double X, double Y, string Source = "ocr", DateTimeOffset? CapturedAt = null);
 public record LedgerEvent(DateTimeOffset At, string Kind, string Evidence);
 public sealed class MatchRecord
 {
@@ -24,23 +24,85 @@ public sealed class Ledger
 }
 
 // Detection consumes only OCR from the game's visible client area. No game memory or hooks.
-public sealed class Tracker(Ledger ledger)
+public sealed class Tracker
 {
+    private readonly Ledger ledger;
     public static readonly string[] Rewards = ["Gizmo", "Loading screen", "Jam track", "Pickaxe", "Back bling", "Vehicle / decal", "Pirate shop access", "Gold outfit"];
     private readonly Dictionary<string, DateTimeOffset> lastSeen = [];
     private readonly HashSet<string> latched = [];
     private DateTimeOffset? lastFrame;
-    private bool startVisible;
+    private bool gameplaySeen;
+    private DateTimeOffset? lastGameplayAt, lastMatchSample, startCandidateAt;
+    private int startCandidateSamples;
     private readonly Dictionary<string, int> absentMetadata = [];
     public MatchRecord? Current { get; private set; }
     public string LastDecision { get; private set; } = "No frame processed yet";
     public string Phase { get; private set; } = "Waiting for a match";
 
+    public Tracker(Ledger ledger)
+    {
+        this.ledger = ledger;
+        Current = ledger.Matches.LastOrDefault(x => !x.Ended.HasValue);
+        gameplaySeen = Current?.Events.Count > 0;
+        if (Current is not null) Phase = "Resumed tracked match";
+    }
+
     static string Normalize(string s)
     {
         var clean = Regex.Replace(s.Normalize(NormalizationForm.FormKC).ToUpperInvariant(), @"[^\p{L}\p{N}+ ]", " ");
         // Windows Japanese OCR can insert spaces between each Japanese word/glyph.
-        return Regex.Replace(clean, @"(?<=[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}])\s+|\s+(?=[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}])", "");
+        return Regex.Replace(Regex.Replace(clean, @"(?<=[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}])\s+|\s+(?=[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}])", ""), @"\s+", " ");
+    }
+
+    void BeginMatch(DateTimeOffset at, bool partial)
+    {
+        if (Current is not null && !Current.Ended.HasValue) Current.Ended = at;
+        Current = new MatchRecord { Started = at, Partial = partial };
+        ledger.Matches.Add(Current);
+        gameplaySeen = partial;
+        startCandidateAt = null; startCandidateSamples = 0;
+        latched.Clear(); lastSeen.Clear(); absentMetadata.Clear();
+        Phase = partial ? "Partial match · opened mid-game" : "New match · counter reset";
+    }
+
+    bool ObserveMatch(IReadOnlyList<Observation> lines, DateTimeOffset now, bool visualActive)
+    {
+        // Fast chest-only frames contain no evidence about the match lifecycle.
+        if (visualActive && !lines.Any(x => x.Source is "metadata-pass" or "match-pass")) return false;
+        var samples = lines.Where(x => x.Source is not "visual-active" and not "event-chest").ToList();
+        bool headerSample = samples.Any(x => x.Source == "match-pass");
+        bool dedicatedHeader = visualActive || headerSample;
+        var at = samples.Where(x => !headerSample || x.Source == "match-pass").Select(x => x.CapturedAt).Where(x => x.HasValue).Max() ?? now;
+        string header = string.Join(" ", samples.Where(x => !dedicatedHeader || x.Source == "match-ocr").Select(x => x.Text));
+        string allText = string.Join(" ", samples.Select(x => x.Text));
+        bool start = Regex.IsMatch(header, @"WAITING F[O0]R (OTHER )?PLAYERS|BATTLE\s?BUS (IS )?(LAUNCHING|LEAVING)|EVERYBODY OFF.*LAST STOP")
+            || Regex.IsMatch(header, @"プレイヤー(を)?(待っています|待機中|待ち)|バトルバス(の)?(発車|出発|発進)|最終降車地点|最後の停留所");
+        bool finish = Regex.IsMatch(allText, @"YOU PLACED|VICTORY ROYALE|あなたの順位|ビクトリー?ロイヤル");
+        if (finish)
+        {
+            var finishAt = samples.Where(x => Regex.IsMatch(x.Text, @"YOU PLACED|VICTORY ROYALE|あなたの順位|ビクトリー?ロイヤル")).Select(x => x.CapturedAt).Max() ?? at;
+            if (Current is not null && finishAt < Current.Started || lastGameplayAt.HasValue && finishAt < lastGameplayAt.Value) return false;
+            startCandidateAt = null; startCandidateSamples = 0;
+            Phase = "Match finished";
+            if (Current is not null && !Current.Ended.HasValue) { Current.Ended = finishAt; return true; }
+            return false;
+        }
+        if (visualActive && !headerSample) return false;
+        if (lastMatchSample.HasValue && at <= lastMatchSample.Value) return false;
+        lastMatchSample = at;
+        if (!start)
+        { startCandidateAt = null; startCandidateSamples = 0; return false; }
+        // An OCR job can finish after a chest was counted; old waiting-room text
+        // must not roll that chest into another match.
+        if (lastGameplayAt.HasValue && at <= lastGameplayAt.Value) return false;
+        if (Current is null || Current.Ended.HasValue)
+        { BeginMatch(at, false); return true; }
+        if (!gameplaySeen) return false; // Waiting -> bus is still the same match.
+        if (!startCandidateAt.HasValue || at - startCandidateAt.Value > TimeSpan.FromSeconds(8))
+        { startCandidateAt = at; startCandidateSamples = 1; return false; }
+        startCandidateSamples++;
+        if (startCandidateSamples < 2 || at - startCandidateAt.Value < TimeSpan.FromMilliseconds(300)) return false;
+        BeginMatch(startCandidateAt.Value, false); return true;
     }
     public bool Process(IReadOnlyList<Observation> lines, DateTimeOffset now)
     {
@@ -50,25 +112,10 @@ public sealed class Tracker(Ledger ledger)
         bool visualActive = lines.Any(x => x.Source == "visual-active");
         bool metadataFrame = lines.Any(x => x.Source == "metadata-pass");
         var normalized = lines.Select(x => x with { Text = Normalize(x.Text) }).ToList();
-        var text = string.Join(" ", normalized.Select(x => x.Text));
-        bool changed = false;
-        bool start = text.Contains("プレイヤーを待っています") || text.Contains("プレイヤーを待機中") || text.Contains("バトルバス発車まで") || text.Contains("バトルバス出発まで") || text.Contains("WAITING FOR PLAYERS") || text.Contains("BATTLE BUS LAUNCHING") || text.Contains("EVERYBODY OFF") && text.Contains("LAST STOP");
-        if (start && !startVisible && (Current is null || Current.Ended.HasValue || now - Current.Started > TimeSpan.FromMinutes(3)))
-        {
-            if (Current is not null && !Current.Ended.HasValue) Current.Ended = now;
-            Current = new MatchRecord { Started = now };
-            ledger.Matches.Add(Current);
-            changed = true;
-            Phase = "Match detected";
-        }
-        if (uninterrupted || start) startVisible = start;
-        if (text.Contains("YOU PLACED") || text.Contains("VICTORY ROYALE") || text.Contains("あなたの順位") || text.Contains("ビクトリーロイヤル"))
-        {
-            if (Current is not null && !Current.Ended.HasValue) { Current.Ended = now; changed = true; }
-            Phase = "Match finished";
-        }
+        bool changed = ObserveMatch(normalized, now, visualActive);
         // Restrict chest notifications to the central HUD, excluding quest lists and feed.
-        var center = normalized.Where(x => x.X is > .18 and < .83 && x.Y is > .12 and < .88).ToList();
+        var center = normalized.Where(x => x.X is > .18 and < .83 && x.Y is > .12 and < .88
+            && (!x.CapturedAt.HasValue || Current is null || x.CapturedAt.Value >= Current.Started)).ToList();
         bool Xp(Observation line) => Regex.IsMatch(line.Text, @"[0-9][0-9 ,+]*\s*X\s*P(?![A-Z])");
         bool Notification(Observation line)
         {
@@ -87,8 +134,9 @@ public sealed class Tracker(Ledger ledger)
         int liveChests = lines.Count(x => x.Source == "event-chest");
         if (liveChests > 0)
         {
-            if (Current is null) { Current = new MatchRecord { Started = now, Partial = true }; ledger.Matches.Add(Current); Phase = "Partial match · opened mid-game"; }
+            if (Current is null || Current.Ended.HasValue) BeginMatch(now, true);
             foreach (var observation in lines.Where(x => x.Source == "event-chest")) Current.Events.Add(new LedgerEvent(now, "Chest", observation.Text));
+            gameplaySeen = true; lastGameplayAt = now; Phase = "In match";
             changed = true;
         }
         var hits = new Dictionary<string, string>();
@@ -115,14 +163,10 @@ public sealed class Tracker(Ledger ledger)
         }
         foreach (var hit in hits)
         {
+            if (Current is null || hit.Key == "Chest" && Current.Ended.HasValue) BeginMatch(now, true);
             lastSeen[hit.Key] = now;
             if (!latched.Add(hit.Key)) continue;
-            if (Current is null)
-            {
-                Current = new MatchRecord { Started = now, Partial = true };
-                ledger.Matches.Add(Current);
-                Phase = "Partial match · opened mid-game";
-            }
+            if (hit.Key == "Chest") { gameplaySeen = true; lastGameplayAt = now; Phase = "In match"; }
             Current.Events.Add(new LedgerEvent(now, hit.Key, hit.Value));
             changed = true;
         }

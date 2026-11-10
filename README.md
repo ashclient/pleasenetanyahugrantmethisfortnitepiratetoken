@@ -21,7 +21,7 @@ Windows OCR runs separately for match banners and reward names. Known gizmo name
 
 Japanese OCR is needed for Japanese reward text. If unavailable, the history window explains the fallback; the live Japanese chest detector can still run. Install the Japanese Windows OCR optional feature, then select **Retry OCR** for other Japanese rewards.
 
-**Counts remain estimates from captured visible notifications.** This cannot recover old lifetime chests, unseen or disabled notifications, or openings while the app is closed. Nonstandard HUD sizes/aspect ratios, stacked openings too fast to sample, capture restrictions, game updates and recognition errors can cause misses or false counts. Match boundaries use waiting/bus/result banners; starting mid-game produces a partial match. First seeing an X3 banner does not invent three historical openings.
+**Counts remain estimates from captured visible notifications.** This cannot recover old lifetime chests, unseen or disabled notifications, or openings while the app is closed. Nonstandard HUD sizes/aspect ratios, stacked openings too fast to sample, capture restrictions, game updates and recognition errors can cause misses or false counts. Match boundaries use a dedicated waiting/bus header reader plus result banners. During gameplay, two fresh pregame samples confirm a new match; waiting and bus screens stay in the same match, including short games. Slow reward OCR and chest-only frames do not interrupt that confirmation. Delayed OCR from an earlier screen is ignored. Starting mid-game produces a partial match; restarting the tracker resumes the unfinished match. First seeing an X3 banner does not invent three historical openings.
 
 The app does not read game memory, inject code, modify Fortnite, intercept traffic, or send screen images to a service. It only captures Fortnite while its game window is foreground. This is an unofficial app; no live-game accuracy guarantee is made. **Replay import is not included.** Existing historical counts are preserved; previously missed openings are not reconstructed by this update.
 
@@ -31,11 +31,11 @@ Open history/settings from the tray and select **Save diagnosis**, preferably wi
 
 Saving writes these local files into `%LOCALAPPDATA%\TreasureLedger\Diagnostics`:
 
-- `live-trace.json`: recent popup masks, frame timing, detector decisions and reward-banner images.
+- `live-trace.json`: recent popup masks, frame timing, detector decisions, reward-banner images, low-resolution screen context and timestamped OCR samples.
 - `recognition.json`: selected language, latest OCR text and status.
 - `game-frame.png`: the last full captured game frame.
 
-Nothing is uploaded automatically. The full game frame can contain visible player names; inspect files before sharing them.
+Nothing is uploaded automatically. The full game frame, low-resolution context and OCR can contain visible player names; inspect files before sharing them.
 
 History is `%LOCALAPPDATA%\TreasureLedger\ledger.json`; the previous save is `ledger.json.bak`. Preferences are in `preferences.json`. Unreadable history stops startup rather than replacing it with zeroes. Back up these files to move computers.
 

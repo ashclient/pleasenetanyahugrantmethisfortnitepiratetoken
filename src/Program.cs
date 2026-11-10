@@ -50,6 +50,19 @@ static class Program
                 var capture = new GameCapture("en-US");
                 var lines = Task.Run(() => capture.Read(sample)).GetAwaiter().GetResult();
                 if (!lines.Any(x => x.Text.Contains("CHEST", StringComparison.OrdinalIgnoreCase))) throw new Exception("Windows OCR did not read the synthetic text.");
+                using var waitingSample = new Bitmap(1600, 900);
+                using (var g = Graphics.FromImage(waitingSample))
+                { g.Clear(Color.FromArgb(25, 55, 80)); using var font = new Font("Segoe UI", 30, FontStyle.Bold); g.DrawString("WAITING FOR PLAYERS", font, Brushes.White, 500, 45); }
+                var headers = Task.Run(() => capture.ReadMatchHeader(waitingSample)).GetAwaiter().GetResult();
+                var matchLedger = new Ledger(); var matchTracker = new Tracker(matchLedger); var matchAt = DateTimeOffset.UtcNow;
+                List<Observation> HeaderBatch(DateTimeOffset at) => [new("active", 0, 0, "visual-active"), new("header", 0, 0, "match-pass", at), .. headers.Select(x => x with { CapturedAt = at })];
+                matchTracker.Process(HeaderBatch(matchAt), matchAt);
+                matchTracker.Process([new("active", 0, 0, "visual-active"), new("opening", .7, .32, "event-chest")], matchAt.AddSeconds(10));
+                matchTracker.Process(HeaderBatch(matchAt.AddSeconds(20)), matchAt.AddSeconds(20));
+                matchTracker.Process([new("active", 0, 0, "visual-active")], matchAt.AddSeconds(20.1));
+                matchTracker.Process(HeaderBatch(matchAt.AddSeconds(20.7)), matchAt.AddSeconds(20.7));
+                if (matchLedger.Matches.Count != 2 || matchTracker.Current?.Chests != 0 || matchLedger.Totals.GetValueOrDefault("Chest") != 1)
+                    throw new Exception("Packaged match-header OCR/reset integration failed: " + string.Join(" | ", headers.Select(x => x.Text)));
                 using var japaneseSample = new Bitmap(1600, 900);
                 using (var g = Graphics.FromImage(japaneseSample))
                 {
@@ -75,7 +88,7 @@ static class Program
                     japaneseReport = "SKIPPED: Japanese OCR integration; this test machine lacks the Japanese OCR feature. Japanese parsing tests are separate; live Japanese game capture still needs validation.";
                     File.WriteAllText("japanese-ocr.txt", japaneseReport);
                 }
-                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR reads the synthetic metadata text; live chest counts are checked against recorded sequences.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Captured gameplay on the user PC still requires verification.");
+                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR reads the synthetic metadata text and dedicated waiting header; short-match reset preserves lifetime total; live chest counts are checked against recorded sequences.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Captured gameplay on the user PC still requires verification.");
                 return 0;
             }
             catch (Exception e) { File.WriteAllText("smoke-test.txt", e.ToString()); return 1; }
@@ -196,7 +209,7 @@ public sealed class LedgerApplication : ApplicationContext
                 latest = await Task.Run(() => reader.ReadFast(frame, capturedAt!.Value));
                 if (exiting) return;
                 if (tracker.Process(latest, capturedAt!.Value)) store.Save(ledger);
-                status = "Watching Fortnite · " + reader.VisionSummary + " · " + tracker.LastDecision + (string.IsNullOrEmpty(reader.RecognitionNote) ? "" : " · " + reader.RecognitionNote) + (string.IsNullOrEmpty(reader.LastOcrError) ? "" : " · OCR error: " + reader.LastOcrError);
+                status = "Watching Fortnite · " + reader.VisionSummary + " · " + tracker.LastDecision + (string.IsNullOrEmpty(reader.RecognitionNote) ? "" : " · " + reader.RecognitionNote) + (string.IsNullOrEmpty(reader.LastOcrError) ? "" : " · OCR error: " + reader.LastOcrError) + (string.IsNullOrEmpty(reader.LastMatchError) ? "" : " · Match OCR error: " + reader.LastMatchError);
             }
         }
         catch (Exception e) { status = "Recognition error: " + e.Message; }
@@ -221,7 +234,7 @@ public sealed class LedgerApplication : ApplicationContext
         if (latestFrame is null) { MessageBox.Show("No Fortnite frame has been captured. Bring Fortnite to the foreground in Windowed Fullscreen, then reopen settings using the tray icon."); return; }
         var folder = Path.Combine(store.DirectoryPath, "Diagnostics"); Directory.CreateDirectory(folder);
         latestFrame.Save(Path.Combine(folder, "game-frame.png"), System.Drawing.Imaging.ImageFormat.Png);
-        File.WriteAllText(Path.Combine(folder, "recognition.json"), JsonSerializer.Serialize(new { capturedAt, language = preferences.Language, status, recognitionNote = capture?.RecognitionNote, ocrError = capture?.LastOcrError, decision = tracker.LastDecision, lines = latest }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(folder, "recognition.json"), JsonSerializer.Serialize(new { capturedAt, language = preferences.Language, status, phase = tracker.Phase, matchId = tracker.Current?.Id, matchStarted = tracker.Current?.Started, matchEnded = tracker.Current?.Ended, recognitionNote = capture?.RecognitionNote, ocrError = capture?.LastOcrError, decision = tracker.LastDecision, lines = latest }, new JsonSerializerOptions { WriteIndented = true }));
         File.WriteAllText(Path.Combine(folder, "live-trace.json"), JsonSerializer.Serialize(capture?.Diagnostic));
         Process.Start(new ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
     }

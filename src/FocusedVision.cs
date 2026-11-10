@@ -20,8 +20,10 @@ internal sealed class FocusedVision : IDisposable
     readonly object diagnosticLock = new();
     readonly Queue<object> trace = new();
     readonly Queue<object> banners = new();
+    readonly Queue<object> contextFrames = new();
     int frameNumber;
     public IReadOnlyCollection<object> BannerTrace { get { lock (diagnosticLock) return banners.ToArray(); } }
+    public IReadOnlyCollection<object> ContextTrace { get { lock (diagnosticLock) return contextFrames.ToArray(); } }
     public string Summary { get; private set; } = "Waiting for frames";
     public double LastMilliseconds { get; private set; }
     public int LastLineCount { get; private set; }
@@ -177,6 +179,15 @@ internal sealed class FocusedVision : IDisposable
             Cv.Cv2.Resize(input, normalized, new Cv.Size(1280, 720), 0, 0, Cv.InterpolationFlags.Area);
         }
         finally { frame.UnlockBits(bits); }
+        // Wider context is diagnostic only: notifications outside the XP/banner
+        // regions (for example sprite feedback) must remain inspectable after a miss.
+        if (frameNumber % 6 == 0)
+        {
+            using var context = new Cv.Mat();
+            Cv.Cv2.Resize(normalized, context, new Cv.Size(768, 432), 0, 0, Cv.InterpolationFlags.Area);
+            Cv.Cv2.ImEncode(".jpg", context, out byte[] jpeg, new Cv.ImageEncodingParam(Cv.ImwriteFlags.JpegQuality, 65));
+            lock (diagnosticLock) { contextFrames.Enqueue(new { at, jpeg = Convert.ToBase64String(jpeg) }); while (contextFrames.Count > 60) contextFrames.Dequeue(); }
+        }
         if (frameNumber++ % 3 == 0)
         {
             using var banner = new Cv.Mat(normalized, new Cv.Rect(448, 50, 384, 216));
