@@ -12,12 +12,17 @@ public sealed class MatchRecord
     public DateTimeOffset Started { get; set; }
     public DateTimeOffset? Ended { get; set; }
     public bool Partial { get; set; }
+    public string? ReplaySessionId { get; set; }
+    public int? ReplayChestCount { get; set; }
+    public int? ReplayDestroyedCount { get; set; }
+    public bool ReplayCountLower { get; set; }
     public List<LedgerEvent> Events { get; set; } = [];
     public int Chests => Events.Count(x => x.Kind == "Chest");
 }
 public sealed class Ledger
 {
     public int SchemaVersion { get; set; } = 1;
+    public DateTimeOffset? ReplayTrackingFrom { get; set; }
     public List<MatchRecord> Matches { get; set; } = [];
     public Dictionary<string, int> Totals => Matches.SelectMany(x => x.Events)
         .GroupBy(x => x.Kind).ToDictionary(x => x.Key, x => x.Count());
@@ -45,6 +50,12 @@ public sealed class Tracker
         Current = ledger.Matches.LastOrDefault(x => !x.Ended.HasValue);
         gameplaySeen = Current?.Events.Count > 0;
         if (Current is not null) Phase = "Resumed tracked match";
+    }
+    public void ReplayApplied(Guid id)
+    {
+        var match = ledger.Matches.First(x=>x.Id==id);
+        if(Current is null || Current.Ended.HasValue && match.Started>Current.Started) Current=match;
+        if(Current.Id == id) Phase="Match finished · replay checked";
     }
 
     static string Normalize(string s)

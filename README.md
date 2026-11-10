@@ -23,7 +23,19 @@ Japanese OCR is needed for Japanese reward text. If unavailable, the history win
 
 **Counts remain estimates from captured visible notifications.** This cannot recover old lifetime chests, unseen or disabled notifications, or openings while the app is closed. Nonstandard HUD sizes/aspect ratios, stacked openings too fast to sample, capture restrictions, game updates and recognition errors can cause misses or false counts. Match boundaries use a dedicated waiting/bus header reader plus result banners. During gameplay, two fresh pregame samples confirm a new match; waiting and bus screens stay in the same match, including short games. Slow reward OCR and chest-only frames do not interrupt that confirmation. Delayed OCR from an earlier screen is ignored. Starting mid-game produces a partial match; restarting the tracker resumes the unfinished match. First seeing an X3 banner does not invent three historical openings.
 
-The app does not read game memory, inject code, modify Fortnite, intercept traffic, or send screen images to a service. It only captures Fortnite while its game window is foreground. This is an unofficial app; no live-game accuracy guarantee is made. **Replay import is not included.** Existing historical counts are preserved; previously missed openings are not reconstructed by this update.
+The app does not read game memory, inject code, modify Fortnite, intercept traffic, or send screen images to a service. It only captures Fortnite while its game window is foreground. This is an unofficial app; no live-game accuracy guarantee is made. Completed-replay checks now supplement live chest counts. Existing history is preserved; automatic replay checking starts with matches completed after the first launch of v0.4. Older matches are not imported automatically.
+
+## Destroyed chests and replay checks
+
+Turn on **Fortnite Settings → Game → Replays → Record Replays**. The app checks `%LOCALAPPDATA%\FortniteGame\Saved\Demos` automatically. Change the folder or disable checking in the tray menu. No account connection or manual import is needed. Future completed matches can be checked even if the overlay missed their notifications.
+
+A separate bundled reader uses [LED-N's replay parser](https://github.com/LED-N/Fortnite-ChestCounter/tree/1f387987737cfd606611d5b8d294d5db04af9eab) to identify the recording player and containers opened or destroyed by that player, including the parser's support-destruction/explosion path. It reads completed replay files only. Encrypted replays usually lack the usable key until recording ends, so destroyed chests **are added after the match, not immediately**. File writing, parsing and the 15-second polling interval add delay.
+
+Only the replay-total deficit is added to the matching saved match, rather than adding the entire replay or every destroyed chest again. History's Broken column shows the replay's destroyed count. A session is applied once even across restarts. Rewards keep using live detection. Ambiguous time matches, missing player identity, unreadable files and unsupported game versions do not change counts. A replay total below the saved live total is flagged for review; live history is not deleted. Mid-game app restarts and overwritten/missing replay files can still leave gaps.
+
+The worker is an independent GPL-3.0-or-later command-line program using MIT parser code and the GPL OozSharp decompressor. Releases include **ReplayWorkerSource.zip** with its exact complete corresponding source and notices; the tray's Replay worker source & licenses action also extracts it locally. See [worker build instructions](replay-worker/README.md). Main/worker communication uses a file path and JSON; no game process access or replay modification occurs.
+
+Validation covers reconciliation, deduplication, retained history, worker hashing/extraction/launch/parser construction and the existing visual regressions. **Actual encrypted replay parsing and destroyed-chest attribution have not been verified against a completed replay from this user's PC yet.** Check history/settings for replay status and `replay-errors.log` for parse failures. A completed `.replay` would let us validate the full path.
 
 ## After a missed notification
 
@@ -42,6 +54,9 @@ History is `%LOCALAPPDATA%\TreasureLedger\ledger.json`; the previous save is `le
 ## Build and validation
 
 ```
+# Checkout pinned worker dependency under external/chestreader (see workflow).
+dotnet publish replay-worker/ReplayWorker.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o worker-dist
+python scripts/package_replay_worker.py
 dotnet run --project tests/TrackerTests.csproj -c Release
 dotnet publish src/TreasureLedger.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o dist
 ```

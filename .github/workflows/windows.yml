@@ -12,7 +12,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/checkout@v4
+        with:
+          repository: LED-N/Fortnite-ChestCounter
+          ref: 1f387987737cfd606611d5b8d294d5db04af9eab
+          path: external/chestreader
+      - name: Build independent replay reader
+        run: dotnet publish replay-worker/ReplayWorker.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -o worker-dist
+      - name: Package corresponding replay-reader source
+        run: python scripts/package_replay_worker.py
       - name: Test counting and history
         run: dotnet run --project tests/TrackerTests.csproj -c Release
       - name: Publish standalone Windows executable
@@ -37,6 +48,7 @@ jobs:
           path: |
             dist/TreasureLedger.exe
             dist/SHA256SUMS.txt
+            worker-dist/ReplayWorkerSource.zip
             overlay-preview.png
             overlay-large-counts.png
             overlay-background-check.png
@@ -50,15 +62,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "v0.3.1-build.${{ github.run_number }}"
+          $tag = "v0.4.0-build.${{ github.run_number }}"
           $notes = @'
-          Fixes automatic match-counter resets: no three-minute minimum; repeated waiting/bus frames stay in one match; short games and missed result banners are handled. Pregame header OCR has its own background worker, separate from reward OCR and fast chest detection. Two fresh header samples confirm a new match during gameplay. Timestamped OCR prevents delayed results or old waiting-room frames from resetting the current match. Restarting the app resumes an unfinished match. Existing lifetime totals are preserved.
+          Adds automatic completed-replay checking alongside the existing live overlay. The bundled independent reader uses LED-N's pinned parser to read destroyed-chest attribution (including support destruction/explosions) for the player recording each replay. After a match ends, only the deficit between its replay total and its saved live count is added; chests already counted live are not added twice. History shows the replay's destroyed count separately. Reward counts still use the live detector.
 
-          Keeps the transparent icon overlay, Alt+T click-through toggle, live chest popup tracker, English/Japanese selector and persistent reward history. Save diagnosis now also retains low-resolution screen context and timestamped OCR samples locally, helping inspect notifications outside the XP region. Diagnostic images can contain visible player names; nothing uploads automatically.
+          Turn on Fortnite Settings → Game → Replays → Record Replays. The default Saved/Demos folder is checked automatically; a custom folder and disable toggle are available in the tray. Checking starts with games completed after the first launch of this version. Live encrypted replays wait for the decryption key, normally written at match end. Missing keys, incomplete files, unsupported game updates or ambiguous match histories leave saved counts unchanged and show a status/error. Lower replay totals are flagged instead of deleting live history.
 
-          Destroyed-chest counting has not been added: the supplied trace did not contain a distinct identifiable destruction notification in its recorded regions. Replay import is not included. Counts remain estimates from visible notifications; disabling them, missed match banners, unusual HUD settings or missing Windows OCR language features can still affect detection. Run Fortnite in Windowed Fullscreen.
+          This is experimental: parser construction, bundled-worker launch/source extraction and reconciliation are tested, alongside the existing 10 recorded live chest sequences and Japanese screenshot tests. Actual encrypted replay parsing and player attribution have not yet been verified with this user's completed replay. Do not treat counts as authoritative game telemetry. The live chest detector, transparent overlay, Alt+T and match-reset logic are retained.
 
-          Validation: match-state and persistence regressions, packaged executable smoke test, 10 recorded English chest sequences, Japanese chest/gizmo screenshot tests, transparent overlay layout, large counts, click-through and Alt+T. Japanese OCR integration is skipped on runners without its optional Windows language feature; see smoke-test.txt. Live match-boundary capture still needs verification on the player PC.
+          Replay worker corresponding source and all original licenses are in ReplayWorkerSource.zip (also extractable from the tray). The independent GPL-3.0-or-later worker uses the MIT LED-N/FortniteReplayDecompressor code and GPL OozSharp decompressor. No game memory access, injection, replay modification or automatic uploads.
           '@
           $notes | Set-Content release-notes.txt
-          gh release create $tag dist/TreasureLedger.exe dist/SHA256SUMS.txt --target '${{ github.sha }}' --title "Treasure Ledger $tag" --notes-file release-notes.txt --prerelease
+          gh release create $tag dist/TreasureLedger.exe dist/SHA256SUMS.txt worker-dist/ReplayWorkerSource.zip --target '${{ github.sha }}' --title "Treasure Ledger $tag" --notes-file release-notes.txt --prerelease

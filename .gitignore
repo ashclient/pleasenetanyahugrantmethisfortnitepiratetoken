@@ -4,3 +4,6 @@ dist/
 *.user
 overlay-preview.png
 smoke-test.txt
+
+external/
+worker-dist/

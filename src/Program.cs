@@ -50,6 +50,17 @@ static class Program
                 var capture = new GameCapture("en-US");
                 var lines = Task.Run(() => capture.Read(sample)).GetAwaiter().GetResult();
                 if (!lines.Any(x => x.Text.Contains("CHEST", StringComparison.OrdinalIgnoreCase))) throw new Exception("Windows OCR did not read the synthetic text.");
+                var workerTestFolder = Path.Combine(Path.GetTempPath(), "TreasureLedger-worker-test-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    using var workerTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    string worker = ReplayWorkerFiles.EnsureWorker(workerTestFolder);
+                    var workerResult = Task.Run(() => ReplayWorkerFiles.Run(worker,"--self-test",workerTimeout.Token)).GetAwaiter().GetResult();
+                    if(workerResult.Code != 0 || !workerResult.Output.Contains("\"ok\":true")) throw new Exception("Bundled replay worker failed: " + workerResult.Error);
+                    using var workerSource = System.IO.Compression.ZipFile.OpenRead(ReplayWorkerFiles.ExtractSource(workerTestFolder));
+                    if(workerSource.GetEntry("replay-worker/COPYING") is null || workerSource.GetEntry("external/chestreader/lib/OozSharp/Kraken.cs") is null) throw new Exception("Replay worker source bundle is incomplete");
+                }
+                finally { try { Directory.Delete(workerTestFolder,true); } catch { } }
                 using var waitingSample = new Bitmap(1600, 900);
                 using (var g = Graphics.FromImage(waitingSample))
                 { g.Clear(Color.FromArgb(25, 55, 80)); using var font = new Font("Segoe UI", 30, FontStyle.Bold); g.DrawString("WAITING FOR PLAYERS", font, Brushes.White, 500, 45); }
@@ -88,7 +99,7 @@ static class Program
                     japaneseReport = "SKIPPED: Japanese OCR integration; this test machine lacks the Japanese OCR feature. Japanese parsing tests are separate; live Japanese game capture still needs validation.";
                     File.WriteAllText("japanese-ocr.txt", japaneseReport);
                 }
-                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR reads the synthetic metadata text and dedicated waiting header; short-match reset preserves lifetime total; live chest counts are checked against recorded sequences.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Captured gameplay on the user PC still requires verification.");
+                File.WriteAllText("smoke-test.txt", "PASS: bundled replay worker hash, extraction, process launch, parser construction, container classifier and corresponding source archive; per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR reads the synthetic metadata text and dedicated waiting header; short-match reset preserves lifetime total; live chest counts are checked against recorded sequences.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Encrypted replay parsing and destroyed-chest attribution still need a real completed replay from the player PC.");
                 return 0;
             }
             catch (Exception e) { File.WriteAllText("smoke-test.txt", e.ToString()); return 1; }
@@ -102,6 +113,8 @@ static class Program
 
 public sealed class Preferences
 {
+    public bool ReplayChecking { get; set; } = true;
+    public string? ReplayFolder { get; set; }
     public string Language { get; set; } = "ja-JP";
     public int X { get; set; } = 24;
     public int Y { get; set; } = 70;
@@ -121,6 +134,10 @@ public sealed class LedgerApplication : ApplicationContext
     Bitmap? latestFrame;
     DateTimeOffset? capturedAt;
     readonly System.Windows.Forms.Timer timer = new() { Interval = 67 };
+    readonly System.Windows.Forms.Timer replayTimer = new() { Interval = 15000 };
+    readonly CancellationTokenSource replayCancellation = new();
+    readonly ReplayMonitor replayMonitor;
+    bool replayBusy;
     readonly string preferencesPath;
     GameCapture? capture;
     Dashboard? dashboard;
@@ -135,6 +152,9 @@ public sealed class LedgerApplication : ApplicationContext
         preferencesPath = Path.Combine(store.DirectoryPath, "preferences.json");
         try { preferences = File.Exists(preferencesPath) ? JsonSerializer.Deserialize<Preferences>(File.ReadAllText(preferencesPath)) ?? new() : new(); }
         catch { preferences = new(); }
+        if(!ledger.ReplayTrackingFrom.HasValue) { ledger.ReplayTrackingFrom=DateTimeOffset.UtcNow; store.Save(ledger); }
+        replayMonitor = new ReplayMonitor(store.DirectoryPath,ledger.ReplayTrackingFrom.Value);
+        if(!string.IsNullOrWhiteSpace(preferences.ReplayFolder)) replayMonitor.Folder=preferences.ReplayFolder;
         var menu = new ContextMenuStrip();
         menu.Items.Add("History & settings", null, (_, _) => OpenDashboard());
         menu.Items.Add("Pause / resume", null, (_, _) => { paused = !paused; Refresh(); });
@@ -142,6 +162,19 @@ public sealed class LedgerApplication : ApplicationContext
         foreach (var (label, code) in new[] { ("日本語 · Japanese", "ja-JP"), ("English", "en-US") })
             languages.DropDownItems.Add(label, null, (_, _) => SetLanguage(code));
         menu.Items.Add(languages);
+        var replayToggle = new ToolStripMenuItem("Check completed replays automatically") { Checked=preferences.ReplayChecking, CheckOnClick=true };
+        replayToggle.CheckedChanged += (_,_) => { preferences.ReplayChecking=replayToggle.Checked; SavePreferences(); Refresh(); };
+        menu.Items.Add(replayToggle);
+        menu.Items.Add("Choose replay folder…",null,(_,_) =>
+        {
+            using var folder = new FolderBrowserDialog { Description="Fortnite replay folder (Saved/Demos)", SelectedPath=replayMonitor.Folder };
+            if(folder.ShowDialog()==DialogResult.OK) { preferences.ReplayFolder=folder.SelectedPath; replayMonitor.Folder=folder.SelectedPath; SavePreferences(); }
+        });
+        menu.Items.Add("Replay worker source & licenses",null,(_,_) =>
+        {
+            try { var path=ReplayWorkerFiles.ExtractSource(store.DirectoryPath); Process.Start(new ProcessStartInfo("explorer.exe", "/select,\""+path+"\"") { UseShellExecute=true }); }
+            catch(Exception e) { MessageBox.Show(e.Message); }
+        });
         preferences.ClickThrough = true;
         interactionHotkey = new InteractionHotkey();
         interactionHotkey.Pressed += (_, _) =>
@@ -177,6 +210,26 @@ public sealed class LedgerApplication : ApplicationContext
         Refresh();
         timer.Tick += async (_, _) => await Tick();
         timer.Start();
+        replayTimer.Tick += async (_,_) => await CheckReplays();
+        replayTimer.Start();
+    }
+    async Task CheckReplays()
+    {
+        if(replayBusy || exiting || !preferences.ReplayChecking) return;
+        replayBusy=true;
+        try
+        {
+            var summary=await Task.Run(()=>replayMonitor.ScanNext(replayCancellation.Token));
+            if(exiting || !preferences.ReplayChecking || summary is null) return;
+            if(summary.Started.AddSeconds(summary.DurationSeconds) < ledger.ReplayTrackingFrom!.Value) { replayMonitor.Report("Replay predates automatic checking; history unchanged"); return; }
+            var correction=ReplayReconciliation.Apply(ledger,summary);
+            replayMonitor.Report(correction.Message);
+            if(correction.MatchId.HasValue) tracker.ReplayApplied(correction.MatchId.Value);
+            if(correction.Changed) store.Save(ledger);
+        }
+        catch(OperationCanceledException) when(exiting) { }
+        catch(Exception e) { replayMonitor.Report("Replay check failed: "+e.Message); }
+        finally { replayBusy=false; if(!exiting) Refresh(); }
     }
     void TryCreateCapture()
     {
@@ -218,7 +271,7 @@ public sealed class LedgerApplication : ApplicationContext
     void Refresh()
     {
         overlay.UpdateCounts(ledger, tracker.Current, paused ? "Paused" : status, preferences.Language);
-        dashboard?.UpdateState(ledger, tracker.Current, tracker.Phase, paused ? "Paused" : status, latest, preferences.Language);
+        dashboard?.UpdateState(ledger, tracker.Current, tracker.Phase, (paused ? "Paused" : status) + "\n" + (preferences.ReplayChecking ? replayMonitor.Status : "Replay check disabled"), latest, preferences.Language);
     }
     void OpenDashboard()
     {
@@ -242,6 +295,7 @@ public sealed class LedgerApplication : ApplicationContext
     protected override void ExitThreadCore()
     {
         exiting = true; timer.Stop(); timer.Dispose(); SavePreferences();
+        replayTimer.Stop(); replayTimer.Dispose(); replayCancellation.Cancel();
         tray.Visible = false; tray.Dispose(); interactionHotkey.Dispose(); latestFrame?.Dispose(); dashboard?.Dispose(); overlay.Dispose(); base.ExitThreadCore();
     }
 }
@@ -275,11 +329,11 @@ public sealed class Dashboard : Form
         var folder = new Button { Text = "Open saved data", AutoSize = true }; folder.Click += (_, _) => Process.Start(new ProcessStartInfo("explorer.exe", dataPath) { UseShellExecute = true }); actions.Controls.Add(folder);
         var diagnostic = new Button { Text = "Save diagnosis", AutoSize = true }; diagnostic.Click += (_, _) => saveDiagnosis(); actions.Controls.Add(diagnostic);
         root.Controls.Add(actions);
-        ConfigureList(matches, ["Match started", "Chests", "Rewards", "State"]); root.Controls.Add(matches);
+        ConfigureList(matches, ["Match started", "Chests", "Broken", "Rewards", "State"]); root.Controls.Add(matches);
         ConfigureList(rewards, ["Reward", "Total tracked", "This match"]); root.Controls.Add(rewards);
         root.Controls.Add(new Label { Text = "Live recognition · Save diagnosis retains the last notification samples", AutoSize = true });
         diagnostics.Multiline = true; diagnostics.ReadOnly = true; diagnostics.ScrollBars = ScrollBars.Vertical; diagnostics.Dock = DockStyle.Fill; root.Controls.Add(diagnostics);
-        root.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "Counts are estimates from visible notifications, starting when this app runs. Use Windowed Fullscreen. Japanese HUD detection needs real-game verification. Alt+T unlocks/locks the transparent overlay; right-click while unlocked for controls. Save diagnosis exports the preceding notification-area frames and recognition trace locally, even after a missed popup disappears.", ForeColor = Color.FromArgb(158, 159, 178) });
+        root.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "Counts are estimates from visible notifications, starting when this app runs. Use Windowed Fullscreen. Completed replay checks add missed chests after each match; turn on Record Replays in Fortnite. Alt+T unlocks/locks the transparent overlay; right-click while unlocked for controls. Save diagnosis exports the preceding notification-area frames and recognition trace locally, even after a missed popup disappears.", ForeColor = Color.FromArgb(158, 159, 178) });
     }
     static void ConfigureList(ListView view, string[] columns)
     { view.Dock = DockStyle.Fill; view.View = View.Details; view.FullRowSelect = true; view.BackColor = Color.FromArgb(27, 28, 40); view.ForeColor = Color.White; view.BorderStyle = BorderStyle.None; foreach (var c in columns) view.Columns.Add(c, c.Contains("started") || c == "Reward" ? 270 : 130); }
@@ -289,7 +343,7 @@ public sealed class Dashboard : Form
         status.Text = message + "\n" + phase;
         totals.Text = $"{ledger.Totals.GetValueOrDefault("Chest"):N0} chests tracked   ·   {ledger.Matches.Count:N0} matches   ·   {ledger.Totals.Where(x => x.Key != "Chest").Sum(x => x.Value):N0} rewards";
         matches.BeginUpdate(); matches.Items.Clear();
-        foreach (var m in ledger.Matches.AsEnumerable().Reverse().Take(100)) matches.Items.Add(new ListViewItem([m.Started.LocalDateTime.ToString("g"), m.Chests.ToString(), m.Events.Count(x => x.Kind != "Chest").ToString(), m.Partial ? "Partial" : m.Ended.HasValue ? "Finished" : m == current ? "Current" : "Previous run"]));
+        foreach (var m in ledger.Matches.OrderByDescending(m=>m.Started).Take(100)) matches.Items.Add(new ListViewItem([m.Started.LocalDateTime.ToString("g"), m.Chests.ToString(), m.ReplayDestroyedCount?.ToString() ?? "—", m.Events.Count(x => x.Kind != "Chest").ToString(), m.ReplayCountLower ? "Replay discrepancy" : m.ReplaySessionId is not null ? "Replay checked" : m.Partial ? "Partial" : m.Ended.HasValue ? "Finished" : m == current ? "Current" : "Previous run"]));
         matches.EndUpdate(); rewards.BeginUpdate(); rewards.Items.Clear();
         foreach (var kind in Tracker.Rewards) rewards.Items.Add(new ListViewItem([kind, ledger.Totals.GetValueOrDefault(kind).ToString(), (current?.Events.Count(x => x.Kind == kind) ?? 0).ToString()]));
         rewards.EndUpdate(); diagnostics.Text = string.Join(Environment.NewLine, latest.Select(x => x.Text));

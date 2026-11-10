@@ -1,0 +1,7 @@
+LED-N/Fortnite-ChestCounter
+https://github.com/LED-N/Fortnite-ChestCounter
+Pinned commit: 1f387987737cfd606611d5b8d294d5db04af9eab
+ReplayAnalyzer and Models: MIT, Copyright (c) 2026 LED-N.
+FortniteReplayDecompressor: MIT, see upstream lib/LICENSE-FortniteReplayDecompressor.
+OozSharp decompressor: GPL-3.0-or-later, see COPYING and original source headers.
+The independent ReplayWorker executable and its corresponding source are distributed under GPL-3.0-or-later.
