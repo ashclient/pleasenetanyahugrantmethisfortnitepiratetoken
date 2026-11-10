@@ -97,13 +97,13 @@ internal sealed class FocusedVision : IDisposable
         List<VisionLine> lines = []; Pattern? best = lockedPattern;
         if (values.Sum() >= 20)
         {
-            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, lockedPattern, language == "ja" ? .86 : lockedPattern.Width == 22 ? .85 : .75);
+            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, lockedPattern, language == "ja" ? .80 : lockedPattern.Width == 22 ? .85 : .75);
             else
             {
                 double score = 0;
                 foreach (var pattern in patterns.Where(p => p.Language == language))
                 {
-                    var candidates = FindLines(mask, blurred, pattern, language == "ja" ? .86 : pattern.Width == 22 ? .85 : .75);
+                    var candidates = FindLines(mask, blurred, pattern, language == "ja" ? .80 : pattern.Width == 22 ? .85 : .75);
                     double candidateScore = candidates.Select(c => c.Score).DefaultIfEmpty(0).Max();
                     if (candidateScore > score) { score = candidateScore; lines = candidates; best = pattern; }
                 }

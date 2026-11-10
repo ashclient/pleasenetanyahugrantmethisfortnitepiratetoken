@@ -60,7 +60,13 @@ internal static class LiveRegression
             using var vision = new FocusedVision(); int total = 0; var at = DateTimeOffset.UtcNow;
             var watch = Stopwatch.StartNew();
             for (int f = 0; f < 12; f++) total += vision.Process(image, at.AddMilliseconds(f * 67), "ja-JP").Count(x => x.Source == "event-chest");
-            watch.Stop(); Check(total == 1, $"Japanese screenshot at {scale:P0}: one opening over 12 sampled frames; average {watch.Elapsed.TotalMilliseconds / 12:F1} ms");
+            watch.Stop(); Check(total == 1, $"Japanese screenshot at {scale:P0}: {total} opening(s) over 12 sampled frames; average {watch.Elapsed.TotalMilliseconds / 12:F1} ms; {vision.Summary}");
+            using (var g = Graphics.FromImage(image))
+                g.FillRectangle(Brushes.Black, (reference.fixtureX + reference.glyphX - 2) * scale, (reference.fixtureY + reference.glyphY - 2) * scale,
+                    (reference.mask[0].Length + 4) * scale, (reference.mask.Length + 4) * scale);
+            using var negative = new FocusedVision(); int falseCount = 0;
+            for (int f = 0; f < 12; f++) falseCount += negative.Process(image, at.AddMilliseconds(f * 67), "ja-JP").Count(x => x.Source == "event-chest");
+            Check(falseCount == 0, $"Japanese XP and sprite-level text without chest label at {scale:P0}: zero openings");
         }
         // The gizmo photo uses a category label, independent of which item icon is above it.
         var gizmo = JapaneseHudDetector.LoadReference("gizmo");
@@ -71,5 +77,9 @@ internal static class LiveRegression
         var observations = Task.Run(() => capture.Read(full)).GetAwaiter().GetResult();
         var ledger = new Ledger(); new Tracker(ledger).Process(observations, DateTimeOffset.UtcNow);
         Check(ledger.Totals.GetValueOrDefault("Gizmo") == 1, "Japanese gizmo screenshot counts its reward category");
+        using (var g = Graphics.FromImage(full)) g.FillRectangle(Brushes.Black, gizmo.fixtureX + 65, gizmo.fixtureY, 140, 115);
+        var withoutIcon = new Ledger();
+        new Tracker(withoutIcon).Process(Task.Run(() => capture.Read(full)).GetAwaiter().GetResult(), DateTimeOffset.UtcNow);
+        Check(withoutIcon.Totals.GetValueOrDefault("Gizmo") == 1, "Japanese gizmo category still counts with item icon removed");
     }
 }
