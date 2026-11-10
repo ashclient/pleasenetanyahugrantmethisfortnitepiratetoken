@@ -24,8 +24,16 @@ jobs:
         run: dotnet publish replay-worker/ReplayWorker.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -o worker-dist
       - name: Package corresponding replay-reader source
         run: python scripts/package_replay_worker.py
-      - name: Test counting and history
-        run: dotnet run --project tests/TrackerTests.csproj -c Release
+      - name: Test counting and history in Pacific timezone
+        shell: pwsh
+        run: |
+          $originalZone = (Get-TimeZone).Id
+          try {
+            Set-TimeZone -Id 'Pacific Standard Time'
+            if ((Get-TimeZone).Id -ne 'Pacific Standard Time') { throw 'Pacific timezone test setup failed' }
+            dotnet run --project tests/TrackerTests.csproj -c Release
+            if ($LASTEXITCODE -ne 0) { throw 'State/history/clock tests failed' }
+          } finally { Set-TimeZone -Id $originalZone }
       - name: Publish standalone Windows executable
         run: dotnet publish src/TreasureLedger.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o dist
       - name: Test packaged executable and render overlay
@@ -62,15 +70,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "v0.4.2-build.${{ github.run_number }}"
+          $tag = "v0.4.3-build.${{ github.run_number }}"
           $notes = @'
-          English is now the default HUD language for new installs. Saved selections, including Japanese, are preserved.
+          Fixes the replay UTC conversion bug confirmed by player diagnostics: the parser's unspecified-kind UTC ticks were incorrectly passed through local-time conversion, shifting Pacific timestamps by eight hours and preventing match reconciliation. Preserving their UTC meaning makes the anonymized player case reconcile 13 live openings with 15 replay chests, including two destroyed chests. Existing replay files are retried when this build starts, subject to the retained tracking start date.
 
-          Adds an independent focused text/XP backup for rare chests (English RARE CHEST and Japanese レア宝箱/レアな宝箱/レアチェスト). It requires stable named-chest text plus nearby XP, waits for the notification to finish, and suppresses itself if the visual detector handled that popup. Existing fast normal-chest detection is unchanged. This conservative backup can still miss partially recognized mixed stacks and requires the selected Windows OCR language feature. Synthetic English Windows OCR and Japanese parsing are tested; actual Japanese rare-chest capture still needs validation.
+          Reward recognition now uses only focused award-banner OCR, pairing its specific found/received header with a nearby category from the same captured sample. Broad scene OCR, generic Japanese acquired/XP text, owned/preview panels, unrelated inventory labels and ambiguous multi-category cards cannot count. Production capture must observe a clean award area before counting its first new drop. Gauntlet and back-bling identities cannot increment again after OCR flicker or restart; unidentified repeats are conservatively suppressed. Existing historical reward entries are retained rather than guessed away.
 
-          Fixes the reported replay-overlap review condition when a populated match overlaps an empty waiting-room/next-match record. Populated fragments fully within one replay can be linked as a group; only the aggregate missing deficit is added. Histories crossing different game time ranges remain flagged. Broken chests are still checked after the replay finishes, not immediately. Detailed local replay-diagnosis.json is included by Save diagnosis, and the last review/result stays visible. Real completed replay attribution still needs verification with a player replay.
+          History & settings → Review rewards lets you exclude false saved reward entries from totals and restore them later. Chest history is unaffected. English remains the new-install default; saved Japanese selections, rare-chest backup, lobby reset, Alt+T, transparency and after-match replay checks remain.
 
-          Keeps lobby reset, lifetime history, transparent icons, Alt+T, rewards and bundled independent replay worker. Enable Fortnite Record Replays for after-match corrections. Complete worker source/notices are in ReplayWorkerSource.zip and extractable from the tray. No game memory access, injection or automatic uploads.
+          Validation includes an anonymized relative-timing reproduction of the supplied replay diagnosis, UTC-kind handling, strict reward evidence/startup/deduplication/exclusion regressions, the packaged worker, existing Windows OCR/overlay checks, 10 recorded English chest sequences and Japanese screenshot tests. Japanese Windows OCR integration is skipped where its optional feature is absent. No full player screenshots or raw diagnostic history are included in the source.
+
+          ReplayWorkerSource.zip contains the complete corresponding source/notices of the independent GPL worker, also extractable from the tray. No game memory access, injection, replay modification or automatic uploads.
           '@
           $notes | Set-Content release-notes.txt
           gh release create $tag dist/TreasureLedger.exe dist/SHA256SUMS.txt worker-dist/ReplayWorkerSource.zip --target '${{ github.sha }}' --title "Treasure Ledger $tag" --notes-file release-notes.txt --prerelease

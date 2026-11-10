@@ -23,7 +23,7 @@ Feed(4.6, O("お宝を発見"), O("ギズモ"));
 Feed(5, O("お宝を発見"), O("ギズモ"));
 Feed(20, O("お宝を発見"), O("ギズモ"));
 Check(ledger.Totals["Gizmo"] == 1, "Japanese award deduplicated including alt-tab gap");
-Feed(20.4, O("獲得"), O("ロード画面"));
+Feed(20.4, O("見つけたもの"), O("ロード画面"));
 Check(ledger.Totals.GetValueOrDefault("Loading screen") == 1, "Japanese loading screen award");
 Feed(20.8, O("あなたの順位 12"));
 Check(tracker.Current!.Ended.HasValue, "Japanese result ends match");
@@ -205,4 +205,39 @@ var neighborChecked=new Ledger {Matches=[new MatchRecord {Started=time.AddMinute
 Check(ReplayReconciliation.Apply(neighborChecked,R("next-session",3)).Changed && neighborChecked.Totals["Chest"]==5,"Previous checked replay with overlapping end timestamp cannot block a distinct populated match");
 var jpQuestRare=new RareChestBackup();jpQuestRare.Update(Rare(0,"レア宝箱を3個開ける"),time,false,0);jpQuestRare.Update(Rare(.3,"レア宝箱を3個開ける"),time.AddSeconds(.3),false,0);
 Check(FinishRare(jpQuestRare)==0,"Japanese rare-chest quest text is not an opening notification");
+
+var unspecifiedClock=new DateTime(2026,11,9,6,47,8,DateTimeKind.Unspecified);
+Check(TreasureLedger.ReplayProtocol.ReplayClock.AsUtc(unspecifiedClock).Hour==6 && TreasureLedger.ReplayProtocol.ReplayClock.AsUtc(unspecifiedClock).Kind==DateTimeKind.Utc,"Unspecified replay UTC ticks never receive the local timezone offset twice");
+Check(TreasureLedger.ReplayProtocol.ReplayClock.AsUtc(DateTime.SpecifyKind(unspecifiedClock,DateTimeKind.Utc)).Hour==6,"Explicit UTC replay timestamps remain unchanged");
+// Anonymized relative offsets from the player's diagnostic: 13 live vs 15 replay,
+// with exactly the two destruction events absent from the live observations.
+var sampleOffsets=new double[]{118.069,125.357,143.160,175.418,187.458,222.941,236.534,263.830,281.743,285.042,297.851,306.493,327.153};
+var sampleReplayOffsets=new double[]{116.9,124,140.3,174.1,186.2,221.7,235.3,254.1,262.7,280.6,283.9,296.7,305.3,316.2,326};
+var sampleGame=new Ledger {Matches=[new MatchRecord {Started=time.AddSeconds(12),Ended=time.AddSeconds(368),Events=sampleOffsets.Select(t=>new LedgerEvent(time.AddSeconds(t),"Chest","live")).ToList()}]};
+var sampleSummary=new ReplaySummary("anonymized-clock-regression",time,351,true,true,sampleReplayOffsets.Select(t=>new ReplayChest(t,t==254.1 || t==316.2)).ToList());
+Check(ReplayReconciliation.Apply(sampleGame,sampleSummary).Changed && sampleGame.Totals["Chest"]==15 && sampleGame.Matches[0].ReplayDestroyedCount==2,"Correct UTC alignment reconciles 13 observed openings plus two destroyed chests to 15");
+Observation[] Award(double t,string category,string source="reward-ocr") => [Active(),new("metadata",0,0,"metadata-pass",time.AddSeconds(t)),new("YOU FOUND",.5,.20,source,time.AddSeconds(t)),new(category,.5,.24,source,time.AddSeconds(t))];
+Observation[] CleanAwards(double t) => [Active(),new("metadata",0,0,"metadata-pass",time.AddSeconds(t))];
+var verifiedRewardLedger=new Ledger();var verifiedRewardTracker=new Tracker(verifiedRewardLedger);
+verifiedRewardTracker.Process(Award(0,"PICKAXE"),time);verifiedRewardTracker.Process(Award(.5,"PICKAXE"),time.AddSeconds(.5));
+Check(!verifiedRewardLedger.Totals.ContainsKey("Pickaxe"),"Award panel already visible at startup cannot count as a newly observed drop");
+verifiedRewardTracker.Process(CleanAwards(1),time.AddSeconds(1));verifiedRewardTracker.Process(CleanAwards(1.5),time.AddSeconds(1.5));
+verifiedRewardTracker.Process(Award(2,"SOLID GOLD GAUNTLETS PICKAXE"),time.AddSeconds(2));
+Check(verifiedRewardLedger.Totals.GetValueOrDefault("Pickaxe")==1,"Fresh focused gauntlet award after a clean baseline counts once");
+verifiedRewardTracker.Process(CleanAwards(3),time.AddSeconds(3));verifiedRewardTracker.Process(CleanAwards(4),time.AddSeconds(4));verifiedRewardTracker.Process(Award(5,"SOLID GOLD GAUNTLETS PICKAXE"),time.AddSeconds(5));
+Check(verifiedRewardLedger.Totals["Pickaxe"]==1,"Same one-time gauntlet award cannot increment again after OCR re-arms");
+var reloadRewardLedger=JsonSerializer.Deserialize<Ledger>(JsonSerializer.Serialize(verifiedRewardLedger))!;var reloadRewardTracker=new Tracker(reloadRewardLedger);
+reloadRewardTracker.Process(CleanAwards(6),time.AddSeconds(6));reloadRewardTracker.Process(CleanAwards(7),time.AddSeconds(7));reloadRewardTracker.Process(Award(8,"SOLID GOLD GAUNTLETS PICKAXE"),time.AddSeconds(8));
+Check(reloadRewardLedger.Totals["Pickaxe"]==1,"Gauntlet identity deduplication survives app restart");
+var fullScreenFake=RewardEvidence.Find([new("YOU FOUND",.5,.2,"scene-ocr"),new("PICKAXE",.5,.24,"scene-ocr")]);
+Check(fullScreenFake.Count==0,"Full-screen scene OCR cannot create a reward");
+Check(RewardEvidence.Find([new("獲得",.5,.2,"reward-ocr"),new("バックアクセサリー",.5,.24,"reward-ocr")]).Count==0,"Generic Japanese XP/acquired text cannot create a back-bling reward");
+Check(RewardEvidence.Find([new("YOU FOUND",.5,.2,"reward-ocr"),new("PICKAXE",.75,.45,"reward-ocr")]).Count==0,"Distant inventory pickaxe cannot attach to an award heading");
+Check(RewardEvidence.Find([new("YOU FOUND",.5,.2,"reward-ocr"),new("OWNED PICKAXE",.5,.24,"reward-ocr")]).Count==0,"Owned item panel cannot count as a new reward");
+Check(RewardEvidence.Find([new("YOU FOUND",.5,.2,"reward-ocr"),new("PICKAXE BACK BLING",.5,.24,"reward-ocr")]).Count==0,"Ambiguous multi-category card cannot award both gauntlets and back bling");
+Check(RewardEvidence.Find([new("見つけたもの",.5,.2,"reward-ocr"),new("バックアクセサリー",.5,.24,"reward-ocr")]).ContainsKey("Back bling"),"Japanese fresh award header and nearby back-bling category are recognized");
+var rewardEntry=reloadRewardLedger.Matches.SelectMany(m=>m.Events).Single(e=>e.Kind=="Pickaxe");rewardEntry.Excluded=true;
+Check(!reloadRewardLedger.Totals.ContainsKey("Pickaxe") && reloadRewardLedger.Matches.SelectMany(m=>m.Events).Contains(rewardEntry),"Excluding a false reward corrects totals without deleting the historical entry");
+rewardEntry.Excluded=false;
+Check(reloadRewardLedger.Totals["Pickaxe"]==1,"Excluded reward entry can be restored");
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");

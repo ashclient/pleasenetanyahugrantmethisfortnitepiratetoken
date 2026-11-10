@@ -5,7 +5,8 @@ using System.Text.RegularExpressions;
 namespace TreasureLedger;
 
 public record Observation(string Text, double X, double Y, string Source = "ocr", DateTimeOffset? CapturedAt = null);
-public record LedgerEvent(DateTimeOffset At, string Kind, string Evidence);
+public record LedgerEvent(DateTimeOffset At, string Kind, string Evidence, string? RewardKey = null)
+{ public bool Excluded { get; set; } }
 public sealed class MatchRecord
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -25,7 +26,9 @@ public sealed class Ledger
     public int SchemaVersion { get; set; } = 1;
     public DateTimeOffset? ReplayTrackingFrom { get; set; }
     public List<MatchRecord> Matches { get; set; } = [];
-    public Dictionary<string, int> Totals => Matches.SelectMany(x => x.Events)
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IEnumerable<LedgerEvent> CountedEvents => Matches.SelectMany(x=>x.Events).Where(e=>!e.Excluded);
+    public Dictionary<string, int> Totals => CountedEvents
         .GroupBy(x => x.Kind).ToDictionary(x => x.Key, x => x.Count());
 }
 
@@ -38,6 +41,8 @@ public sealed class Tracker
     private readonly HashSet<string> latched = [];
     private DateTimeOffset? lastFrame;
     private bool gameplaySeen;
+    private bool rewardArmed;
+    private int cleanRewardSamples;
     private DateTimeOffset? lastGameplayAt, lastMatchSample, startCandidateAt;
     private int startCandidateSamples;
     private DateTimeOffset? lastLobbySample, lobbyCandidateAt, lobbyBoundary;
@@ -198,17 +203,18 @@ public sealed class Tracker
         var hits = new Dictionary<string, string>();
         if (chest is not null) hits["Chest"] = center.Any(x => x.Source == "visual-ja-chest") ? "宝箱 · Japanese HUD visual match" : chest;
         if (center.Any(x => x.Source == "visual-ja-gizmo")) hits["Gizmo"] = "見つけたもの 精霊ギズモ · Japanese HUD visual match";
-        // Reward names must be accompanied by an award banner, not merely an inventory name.
-        var rewardText = string.Join(" ", center.Select(x => x.Text));
-        if (System.Text.RegularExpressions.Regex.IsMatch(rewardText, @"YOU (HAVE |VE )?(FOUND|RECEIVED|UNLOCKED)") || rewardText.Contains("YOU FOUND") || rewardText.Contains("YOUFOUND") || rewardText.Contains("TREASURE FOUND") || rewardText.Contains("YOU RECEIVED") || rewardText.Contains("発見") || rewardText.Contains("見つけた") || rewardText.Contains("獲得"))
+        var rewardHits=RewardEvidence.Find(normalized);
+        bool hasAward=rewardHits.Count>0 || hits.ContainsKey("Gizmo");
+        if(metadataFrame && !rewardArmed)
         {
-            foreach (var (kind, pattern) in new (string, string)[] {
-                ("Gizmo", @"\bGIZM[O0]S?\b|[ギキ][ズス]モ|\b(PORTABLE EXTRACTOR|LUCKY LOCATOR|SPRITE LOCATOR|EXTRACTION (SITE BOOSTER|BOOSTER|ACCELERATOR)|GOLDEN FIREWORKS?)\b|ポータブル抽出器|ラッキーロケーター|ラッキー探知機|抽出サイトブースター|ゴールデンファイアワーク|黄金の花火"), ("Loading screen", @"\bLOADING SCREEN\b|ロード画面|ローディング画面"),
-                ("Jam track", @"\bJAM TRACK\b|ジャムトラック"), ("Pickaxe", @"\bPICKAXE\b|ツルハシ"),
-                ("Back bling", @"\bBACK\s?BLING\b|バックアクセサリー"), ("Vehicle / decal", @"\b(VEHICLE|DECAL)\b|車両|デカール"),
-                ("Pirate shop access", @"\bPIRATE SHOP ACCESS\b|パイレーツショップ|海賊ショップ"), ("Gold outfit", @"\bGOLD(EN)? OUTFIT\b|ゴールドコスチューム|黄金のコスチューム") })
-                if (Regex.IsMatch(rewardText, pattern)) hits[kind] = rewardText;
+            if(hasAward) cleanRewardSamples=0;
+            else if(++cleanRewardSamples>=2) rewardArmed=true;
         }
+        // Production capture must first observe a clean award area. An already
+        // displayed item/unlock panel at startup is not a newly observed drop.
+        if(!visualActive || rewardArmed)
+            foreach(var reward in rewardHits) hits[reward.Key]=reward.Value;
+        else hits.Remove("Gizmo");
         LastDecision = liveChests > 0 ? $"Chest +{liveChests}" : hits.Count > 0 ? "Detected: " + string.Join(", ", hits.Keys) : $"Read {lines.Count} OCR lines; no supported chest/reward notification";
         foreach (string key in latched.ToArray())
         {
@@ -219,11 +225,13 @@ public sealed class Tracker
         }
         foreach (var hit in hits)
         {
+            string? rewardKey=RewardEvidence.UniqueKey(hit.Key,hit.Value);
+            if(rewardKey is not null && RewardEvidence.AlreadyRecorded(ledger.CountedEvents,hit.Key,rewardKey)) continue;
             if (Current is null || hit.Key == "Chest" && Current.Ended.HasValue) BeginMatch(now, true);
             lastSeen[hit.Key] = now;
             if (!latched.Add(hit.Key)) continue;
             if (hit.Key == "Chest") { gameplaySeen = true; lastGameplayAt = now; Phase = "In match"; }
-            Current.Events.Add(new LedgerEvent(now, hit.Key, hit.Value));
+            Current.Events.Add(new LedgerEvent(now, hit.Key, hit.Value,rewardKey));
             changed = true;
         }
         return changed;

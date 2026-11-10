@@ -161,7 +161,7 @@ public sealed class GameCapture
             metadata.Enqueue(new Observation("OCR sample", 0, 0, marker, at));
             foreach (var item in items) metadata.Enqueue(item);
             ocrTrace.Enqueue(new { lane, at, lines = items });
-            while (ocrTrace.Count > 80) ocrTrace.Dequeue();
+            while (ocrTrace.Count > 220) ocrTrace.Dequeue();
         }
     }
     // Synchronous metadata entry point used by packaged OCR checks and diagnostics.
@@ -170,11 +170,11 @@ public sealed class GameCapture
     {
         var result = new List<Observation>();
         if (full || metadataRound++ % 4 == 0)
-            result.AddRange(await ReadRegion(source, new Rectangle(0, 0, source.Width, source.Height), false, 1920));
+            result.AddRange((await ReadRegion(source, new Rectangle(0, 0, source.Width, source.Height), false, 1920)).Select(x=>x with {Source="scene-ocr"}));
         var banner = new Rectangle((int)(source.Width * .35), (int)(source.Height * .07), (int)(source.Width * .30), (int)(source.Height * .30));
-        result.AddRange(await ReadRegion(source, banner, false, 1500));
-        result.AddRange(await ReadRegion(source, banner, true, 1500));
-        result = result.Select(x => x with { Source = "metadata" }).ToList();
+        result.AddRange((await ReadRegion(source, banner, false, 1500)).Select(x=>x with {Source="reward-ocr"}));
+        result.AddRange((await ReadRegion(source, banner, true, 1500)).Select(x=>x with {Source="reward-ocr"}));
+
         if (languageCode == "ja-JP")
         {
             using var normalized = new Bitmap(1919, 1079, PixelFormat.Format32bppArgb);

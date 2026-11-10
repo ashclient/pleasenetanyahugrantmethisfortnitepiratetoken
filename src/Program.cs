@@ -300,10 +300,15 @@ public sealed class LedgerApplication : ApplicationContext
     {
         if (dashboard is null || dashboard.IsDisposed)
         {
-            dashboard = new Dashboard(SetLanguage, () => { TryCreateCapture(); Refresh(); }, SaveDiagnosis, store.DirectoryPath);
+            dashboard = new Dashboard(SetLanguage, () => { TryCreateCapture(); Refresh(); }, SaveDiagnosis, OpenRewardReview, store.DirectoryPath);
             dashboard.FormClosed += (_, _) => dashboard = null;
         }
         Refresh(); dashboard.Show(); dashboard.Activate();
+    }
+    void OpenRewardReview()
+    {
+        using var review=new RewardReview(ledger,()=> {store.Save(ledger);Refresh();});
+        review.ShowDialog(dashboard);
     }
     void SaveDiagnosis()
     {
@@ -332,7 +337,7 @@ public sealed class Dashboard : Form
     readonly TextBox diagnostics = new();
     readonly ComboBox language = new();
     bool updating;
-    public Dashboard(Action<string> setLanguage, Action retry, Action saveDiagnosis, string dataPath)
+    public Dashboard(Action<string> setLanguage, Action retry, Action saveDiagnosis, Action reviewRewards, string dataPath)
     {
         Text = "Treasure Ledger · History & settings"; MinimumSize = new Size(760, 650); Size = new Size(840, 740);
         BackColor = Color.FromArgb(19, 20, 29); ForeColor = Color.FromArgb(235, 236, 245); Font = new Font("Segoe UI", 10);
@@ -353,6 +358,7 @@ public sealed class Dashboard : Form
         var retryButton = new Button { Text = "Retry OCR", AutoSize = true }; retryButton.Click += (_, _) => retry(); actions.Controls.Add(retryButton);
         var folder = new Button { Text = "Open saved data", AutoSize = true }; folder.Click += (_, _) => Process.Start(new ProcessStartInfo("explorer.exe", dataPath) { UseShellExecute = true }); actions.Controls.Add(folder);
         var diagnostic = new Button { Text = "Save diagnosis", AutoSize = true }; diagnostic.Click += (_, _) => saveDiagnosis(); actions.Controls.Add(diagnostic);
+        var review=new Button {Text="Review rewards",AutoSize=true};review.Click+=(_,_)=>reviewRewards();actions.Controls.Add(review);
         root.Controls.Add(actions);
         ConfigureList(matches, ["Match started", "Chests", "Broken", "Rewards", "State"]); root.Controls.Add(matches);
         ConfigureList(rewards, ["Reward", "Total tracked", "This match"]); root.Controls.Add(rewards);
@@ -369,9 +375,9 @@ public sealed class Dashboard : Form
         replayStatus.Text = replayMessage;
         totals.Text = $"{ledger.Totals.GetValueOrDefault("Chest"):N0} chests tracked   ·   {ledger.Matches.Count:N0} matches   ·   {ledger.Totals.Where(x => x.Key != "Chest").Sum(x => x.Value):N0} rewards";
         matches.BeginUpdate(); matches.Items.Clear();
-        foreach (var m in ledger.Matches.OrderByDescending(m=>m.Started).Take(100)) matches.Items.Add(new ListViewItem([m.Started.LocalDateTime.ToString("g"), m.Chests.ToString(), m.ReplayDestroyedCount?.ToString() ?? "—", m.Events.Count(x => x.Kind != "Chest").ToString(), m.ReplayCountLower ? "Replay discrepancy" : m.ReplayFragment ? "Replay fragment" : m.ReplaySessionId is not null ? "Replay checked" : m.Partial ? "Partial" : m.Ended.HasValue ? "Finished" : m == current ? "Current" : "Previous run"]));
+        foreach (var m in ledger.Matches.OrderByDescending(m=>m.Started).Take(100)) matches.Items.Add(new ListViewItem([m.Started.LocalDateTime.ToString("g"), m.Chests.ToString(), m.ReplayDestroyedCount?.ToString() ?? "—", m.Events.Count(x => x.Kind != "Chest" && !x.Excluded).ToString(), m.ReplayCountLower ? "Replay discrepancy" : m.ReplayFragment ? "Replay fragment" : m.ReplaySessionId is not null ? "Replay checked" : m.Partial ? "Partial" : m.Ended.HasValue ? "Finished" : m == current ? "Current" : "Previous run"]));
         matches.EndUpdate(); rewards.BeginUpdate(); rewards.Items.Clear();
-        foreach (var kind in Tracker.Rewards) rewards.Items.Add(new ListViewItem([kind, ledger.Totals.GetValueOrDefault(kind).ToString(), (current?.Events.Count(x => x.Kind == kind) ?? 0).ToString()]));
+        foreach (var kind in Tracker.Rewards) rewards.Items.Add(new ListViewItem([kind, ledger.Totals.GetValueOrDefault(kind).ToString(), (current?.Events.Count(x => x.Kind == kind && !x.Excluded) ?? 0).ToString()]));
         rewards.EndUpdate(); diagnostics.Text = string.Join(Environment.NewLine, latest.Select(x => x.Text));
     }
 }
