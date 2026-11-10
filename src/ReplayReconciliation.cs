@@ -20,13 +20,14 @@ public static class ReplayReconciliation
         // after an earlier reset bug; link them without deleting their history.
         var overlap = ledger.Matches.Where(m => m.Started <= end.AddSeconds(15)
             && (m.Ended ?? DateTimeOffset.MaxValue) >= replay.Started).ToList();
-        var eligible = overlap.Where(m => m.ReplaySessionId is null && m.Started >= replay.Started.AddMinutes(-3)).ToList();
+        var eligible = overlap.Where(m => m.ReplaySessionId is null).ToList();
         bool Inside(LedgerEvent e) => e.At >= replay.Started.AddSeconds(-45) && e.At <= end.AddSeconds(15);
         var populated = eligible.Where(m=>m.Chests>0 && m.Events.Where(e=>e.Kind=="Chest").All(Inside)).ToList();
-        bool mixed = overlap.Any(m=>m.Events.Any(e=>e.Kind=="Chest" && Inside(e)) && m.Events.Any(e=>e.Kind=="Chest" && !Inside(e)));
-        if(mixed || overlap.Any(m=>m.ReplaySessionId is not null))
+        bool mixed = eligible.Any(m=>m.Events.Any(e=>e.Kind=="Chest" && Inside(e)) && m.Events.Any(e=>e.Kind=="Chest" && !Inside(e)));
+        bool checkedConflict=overlap.Any(m=>m.ReplaySessionId is not null && m.Events.Any(e=>e.Kind=="Chest" && !e.Evidence.StartsWith("Replay correction",StringComparison.Ordinal) && e.At>=replay.Started.AddSeconds(15) && e.At<=end.AddSeconds(-15)));
+        if(mixed || checkedConflict)
             return new(false,"Replay needs review: chest events cross match boundaries or overlap another checked replay; no counts changed");
-        var linked = populated.Count>0 ? populated : eligible.Where(m=>m.Chests==0).ToList();
+        var linked = populated.Count>0 ? populated : eligible.Where(m=>m.Chests==0 && m.Started>=replay.Started.AddMinutes(-3)).ToList();
         if(populated.Count==0 && (linked.Count>1 || linked.Count==0 && overlap.Count>0))
             return new(false,$"Replay needs review: {linked.Count} possible empty matches and no unique chest-event evidence; no counts changed");
         var match = linked.OrderBy(m=>m.Started).FirstOrDefault();

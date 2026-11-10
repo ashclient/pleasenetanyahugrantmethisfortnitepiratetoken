@@ -198,4 +198,11 @@ var questRare=new RareChestBackup();questRare.Update(Rare(0,"Search rare chests 
 Check(FinishRare(questRare)==0,"Rare-chest quest wording cannot count");
 var multRare=new RareChestBackup();multRare.Update(Rare(0,"レアな宝箱 X2","+1800 XP"),time,false,0);multRare.Update(Rare(.3,"レアな宝箱 X2","+1800 XP"),time.AddSeconds(.3),false,0);multRare.Update(Rare(.8,"レアな宝箱 X3","+2700 XP"),time.AddSeconds(.8),false,0);multRare.Update(Rare(1.1,"レアな宝箱 X3","+2700 XP"),time.AddSeconds(1.1),false,0);
 Check(FinishRare(multRare)==2,"Rare backup counts observed X2-to-X3 change without inventing unseen initial openings");
+
+var longQueue=new Ledger {Matches=[new MatchRecord {Started=time.AddMinutes(-10),Ended=time.AddSeconds(120),Events=[new(time.AddSeconds(20),"Chest","live")]}]};
+Check(ReplayReconciliation.Apply(longQueue,R("long-queue",3)).Changed && longQueue.Totals["Chest"]==3,"Long pregame queue cannot invalidate direct in-match chest evidence");
+var neighborChecked=new Ledger {Matches=[new MatchRecord {Started=time.AddMinutes(-10),Ended=time.AddSeconds(20),ReplaySessionId="previous-session",Events=[new(time.AddSeconds(-90),"Chest","live"),new(time.AddSeconds(20),"Chest","Replay correction previous-session")]},new MatchRecord {Started=time,Ended=time.AddSeconds(120),Events=[new(time.AddSeconds(40),"Chest","live")]}]};
+Check(ReplayReconciliation.Apply(neighborChecked,R("next-session",3)).Changed && neighborChecked.Totals["Chest"]==5,"Previous checked replay with overlapping end timestamp cannot block a distinct populated match");
+var jpQuestRare=new RareChestBackup();jpQuestRare.Update(Rare(0,"レア宝箱を3個開ける"),time,false,0);jpQuestRare.Update(Rare(.3,"レア宝箱を3個開ける"),time.AddSeconds(.3),false,0);
+Check(FinishRare(jpQuestRare)==0,"Japanese rare-chest quest text is not an opening notification");
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");

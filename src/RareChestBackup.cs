@@ -20,7 +20,7 @@ public sealed class RareChestBackup
         foreach(var row in rows)
         {
             string label=Clean(row.Text);string compact=Regex.Replace(label,@"\s+","");
-            if(!Regex.IsMatch(compact,@"^(RARECHEST|レア(な)?(宝箱|チェスト))") || compact.Length>48) continue;
+            if(!Regex.IsMatch(compact,@"^(RARECHEST|レア(な)?(宝箱|チェスト))(X[2-9])?$") || compact.Length>48) continue;
             var number=Regex.Match(compact,@"X([2-9])");
             foreach(var near in rows.Where(r=>Math.Abs(r.X-row.X)<.30 && Math.Abs(r.Y-row.Y)<.15))
             {
