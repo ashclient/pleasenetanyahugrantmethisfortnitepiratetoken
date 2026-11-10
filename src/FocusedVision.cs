@@ -25,6 +25,7 @@ internal sealed class FocusedVision : IDisposable
     public string Summary { get; private set; } = "Waiting for frames";
     public double LastMilliseconds { get; private set; }
     public int LastLineCount { get; private set; }
+    public string Debug { get; private set; } = "";
     public float[] LastMask { get; private set; } = [];
     public IReadOnlyCollection<object> Trace { get { lock (diagnosticLock) return trace.ToArray(); } }
 
@@ -123,6 +124,7 @@ internal sealed class FocusedVision : IDisposable
         if (!sequence.Active) lockedPattern = null;
         watch.Stop(); LastMilliseconds = watch.Elapsed.TotalMilliseconds;
         LastLineCount = lines.Count;
+        Debug = $"font={lockedPattern?.Width} lines={string.Join(';', lines.Select(x => $"{x.X},{x.Y}:{x.Score:F3}:{x.HasMultiplier}:{x.DigitInk}"))} {sequence.Debug}";
         double maxScore = lines.Select(l => l.Score).DefaultIfEmpty(0).Max();
         Summary = $"{lines.Count} chest lines · score {maxScore:F2} · {LastMilliseconds:F0} ms";
         if (record)

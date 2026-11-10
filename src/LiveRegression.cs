@@ -30,6 +30,7 @@ internal static class LiveRegression
             int expected = reader.ReadInt32(), frameCount = reader.ReadInt32(), w = reader.ReadInt32(), h = reader.ReadInt32();
             if (w != FocusedVision.Width || h != FocusedVision.Height) throw new InvalidDataException("Fixture ROI differs from production.");
             using var vision = new FocusedVision(); int actual = 0; var timings = new List<double>(); var eventTimes = new List<double>();
+            var debug = new List<string>();
             for (int f = 0; f < frameCount; f++)
             {
                 double t = reader.ReadDouble(); byte[] packed = reader.ReadBytes((w * h + 7) / 8);
@@ -37,6 +38,7 @@ internal static class LiveRegression
                 float[] mask = new float[w * h]; for (int i = 0; i < mask.Length; i++) mask[i] = (packed[i / 8] & (1 << (7 - i % 8))) != 0 ? 1 : 0;
                 int added = vision.ProcessMask(mask, t, "en"); actual += added; if (added > 0) eventTimes.Add(t);
                 timings.Add(vision.LastMilliseconds);
+                if (name == "replays_stack_x2_x3") debug.Add($"{t:F2} added={added} {vision.Debug}");
             }
             var truth = json.RootElement.GetProperty("truth").GetProperty(name).EnumerateArray().Select(x => x.GetDouble()).ToList();
             int matched = 0, falseEvents = 0;
@@ -46,10 +48,10 @@ internal static class LiveRegression
                 if (near.HasValue) { truth.Remove(near.Value); matched++; } else falseEvents++;
             }
             bool passed = actual == expected && matched == expected && falseEvents == 0; if (!passed) failures++;
+            if (debug.Count > 0) File.WriteAllLines("stack-debug.txt", debug);
             report.Add($"{(passed ? "PASS" : "FAIL")} {name}: {actual}/{expected}, matched {matched}, false/duplicate {falseEvents}; avg {timings.Average():F1} ms; p95 {timings.OrderBy(x => x).ElementAt((int)(timings.Count * .95)):F1} ms; events {string.Join(",", eventTimes.Select(t => t.ToString("F2")))}");
             File.WriteAllLines("live-regression.txt", report);
         }
-        Check(failures == 0, $"Recorded English popup sequences: {count - failures}/{count} correct totals");
         // Exercise the actual bitmap normalization path using the supplied Japanese XP image.
         var reference = JapaneseHudDetector.LoadReference("chest");
         using var stream = new MemoryStream(Convert.FromBase64String(reference.fixture)); using var crop = new Bitmap(stream);
@@ -81,5 +83,6 @@ internal static class LiveRegression
         var withoutIcon = new Ledger();
         new Tracker(withoutIcon).Process(Task.Run(() => capture.Read(full)).GetAwaiter().GetResult(), DateTimeOffset.UtcNow);
         Check(withoutIcon.Totals.GetValueOrDefault("Gizmo") == 1, "Japanese gizmo category still counts with item icon removed");
+        Check(failures == 0, $"Recorded English popup sequences: {count - failures}/{count} correct totals");
     }
 }

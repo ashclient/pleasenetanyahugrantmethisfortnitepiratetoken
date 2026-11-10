@@ -37,6 +37,7 @@ internal sealed class PopupSequence
     bool countedInitial;
     public bool Active { get; private set; }
     public int Additions { get; private set; }
+    public string Debug => $"stable={stable?.Count}:{string.Join(',', stable?.Select(x => x.HasMultiplier ? x.DigitInk : 0) ?? [])} candidate={candidateFrames} xpMin={xpMin:F3} diff={diffSince:F2} lastChange={lastChange:F2}";
 
     static bool Same(IReadOnlyList<VisionLine> a, IReadOnlyList<VisionLine> b) => a.Count == b.Count && a.Zip(b).All(p => p.First.HasMultiplier == p.Second.HasMultiplier && (!p.First.HasMultiplier || VisionPatch.Similarity(p.First.Digit, p.Second.Digit) >= .90));
     static bool Regresses(IReadOnlyList<VisionLine> old, IReadOnlyList<VisionLine> next) => next.Count < old.Count || old.Zip(next).Any(p => p.First.HasMultiplier && !p.Second.HasMultiplier);
