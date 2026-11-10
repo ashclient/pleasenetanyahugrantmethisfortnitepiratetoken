@@ -17,14 +17,15 @@ internal sealed class FocusedVision : IDisposable
     readonly List<Pattern> patterns = [];
     readonly PopupSequence sequence = new();
     Pattern? lockedPattern;
+    readonly object diagnosticLock = new();
     readonly Queue<object> trace = new();
     readonly Queue<object> banners = new();
     int frameNumber;
-    public IReadOnlyCollection<object> BannerTrace => banners.ToArray();
+    public IReadOnlyCollection<object> BannerTrace { get { lock (diagnosticLock) return banners.ToArray(); } }
     public string Summary { get; private set; } = "Waiting for frames";
     public double LastMilliseconds { get; private set; }
     public float[] LastMask { get; private set; } = [];
-    public IReadOnlyCollection<object> Trace => trace.ToArray();
+    public IReadOnlyCollection<object> Trace { get { lock (diagnosticLock) return trace.ToArray(); } }
 
     public FocusedVision()
     {
@@ -32,7 +33,7 @@ internal sealed class FocusedVision : IDisposable
         foreach (var spec in JsonSerializer.Deserialize<List<Spec>>(file)!)
         {
             using var raw = Mat(spec.rows.SelectMany(r => r.Select(c => c == '1' ? 1f : 0f)).ToArray(), spec.rows[0].Length, spec.rows.Length);
-            foreach (double scale in new[] { 1d, 1.15, 1.30 })
+            foreach (double scale in spec.language == "en" ? new[] { 1d } : new[] { 1d, 1.15, 1.30 })
             {
                 using var resized = new Cv.Mat(); Cv.Cv2.Resize(raw, resized, new Cv.Size(Math.Max(4, (int)Math.Round(raw.Cols * scale)), Math.Max(4, (int)Math.Round(raw.Rows * scale))), 0, 0, Cv.InterpolationFlags.Area);
                 using var pad = new Cv.Mat(); Cv.Cv2.CopyMakeBorder(resized, pad, 2, 2, 2, 2, Cv.BorderTypes.Constant, Cv.Scalar.All(0));
@@ -96,13 +97,13 @@ internal sealed class FocusedVision : IDisposable
         List<VisionLine> lines = []; Pattern? best = lockedPattern;
         if (values.Sum() >= 20)
         {
-            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, lockedPattern, language == "ja" ? .86 : .82);
+            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, lockedPattern, language == "ja" ? .86 : lockedPattern.Width == 22 ? .85 : .75);
             else
             {
                 double score = 0;
                 foreach (var pattern in patterns.Where(p => p.Language == language))
                 {
-                    var candidates = FindLines(mask, blurred, pattern, language == "ja" ? .86 : .82);
+                    var candidates = FindLines(mask, blurred, pattern, language == "ja" ? .86 : pattern.Width == 22 ? .85 : .75);
                     double candidateScore = candidates.Select(c => c.Score).DefaultIfEmpty(0).Max();
                     if (candidateScore > score) { score = candidateScore; lines = candidates; best = pattern; }
                 }
@@ -125,8 +126,8 @@ internal sealed class FocusedVision : IDisposable
         if (record)
         {
             var packed = new byte[(values.Length + 7) / 8]; for (int i = 0; i < values.Length; i++) if (values[i] >= .5f) packed[i / 8] |= (byte)(1 << (7 - i % 8));
-            trace.Enqueue(new { seconds, language, width = Width, height = Height, mask = Convert.ToBase64String(packed), added, score = maxScore, lines = lines.Count, milliseconds = LastMilliseconds });
-            while (trace.Count > 300) trace.Dequeue();
+            lock (diagnosticLock) { trace.Enqueue(new { seconds, language, width = Width, height = Height, mask = Convert.ToBase64String(packed), added, score = maxScore, lines = lines.Count, milliseconds = LastMilliseconds });
+            while (trace.Count > 300) trace.Dequeue(); }
         }
         return added;
     }
@@ -145,7 +146,7 @@ internal sealed class FocusedVision : IDisposable
         {
             using var banner = new Cv.Mat(normalized, new Cv.Rect(448, 50, 384, 216));
             Cv.Cv2.ImEncode(".png", banner, out byte[] png);
-            banners.Enqueue(new { at, png = Convert.ToBase64String(png) }); while (banners.Count > 100) banners.Dequeue();
+            lock (diagnosticLock) { banners.Enqueue(new { at, png = Convert.ToBase64String(png) }); while (banners.Count > 100) banners.Dequeue(); }
         }
         using var roi = new Cv.Mat(normalized, new Cv.Rect(Left, Top, Width, Height)); using var copy = roi.Clone();
         byte[] bytes = new byte[Width * Height * 4]; Marshal.Copy(copy.Data, bytes, 0, bytes.Length);

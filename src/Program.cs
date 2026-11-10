@@ -75,7 +75,7 @@ static class Program
                     japaneseReport = "SKIPPED: Japanese OCR integration; this test machine lacks the Japanese OCR feature. Japanese parsing tests are separate; live Japanese game capture still needs validation.";
                     File.WriteAllText("japanese-ocr.txt", japaneseReport);
                 }
-                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR recognizes a synthetic chest using full and contrast-crop passes.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Captured gameplay on the user PC still requires verification.");
+                File.WriteAllText("smoke-test.txt", "PASS: per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR reads the synthetic metadata text; live chest counts are checked against recorded sequences.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Captured gameplay on the user PC still requires verification.");
                 return 0;
             }
             catch (Exception e) { File.WriteAllText("smoke-test.txt", e.ToString()); return 1; }
@@ -139,6 +139,14 @@ public sealed class LedgerApplication : ApplicationContext
         };
         menu.Items.Add(new ToolStripMenuItem("Alt+T · unlock / lock overlay") { Enabled = false });
         menu.Items.Add("Show overlay", null, (_, _) => overlay.Show());
+        menu.Items.Add("Third-party notices", null, (_, _) =>
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly(); var parts = new List<string>();
+            foreach (var name in assembly.GetManifestResourceNames().Where(x => x.StartsWith("ThirdParty.")))
+            { using var stream = assembly.GetManifestResourceStream(name)!; using var reader = new StreamReader(stream); parts.Add(name + Environment.NewLine + reader.ReadToEnd()); }
+            var path = Path.Combine(store.DirectoryPath, "THIRD_PARTY_NOTICES.txt"); File.WriteAllText(path, string.Join(Environment.NewLine + Environment.NewLine, parts));
+            Process.Start(new ProcessStartInfo("notepad.exe", path) { UseShellExecute = true });
+        });
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
         tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "Treasure Ledger", Visible = true, ContextMenuStrip = menu };
         tray.DoubleClick += (_, _) => OpenDashboard();

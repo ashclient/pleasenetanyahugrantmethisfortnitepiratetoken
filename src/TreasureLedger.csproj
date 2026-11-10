@@ -12,4 +12,5 @@
   </PropertyGroup>
   <ItemGroup><EmbeddedResource Include="Assets/icons.json" /><EmbeddedResource Include="Assets/*-notification.json" /></ItemGroup>
   <ItemGroup><PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" /><EmbeddedResource Include="Assets/fast-templates.json" /><EmbeddedResource Include="Assets/english-traces.json" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="../THIRD_PARTY_GABRIEL_GOMEZ.txt" LogicalName="ThirdParty.GabrielGomez.txt" /><EmbeddedResource Include="../THIRD_PARTY_OPENCVSHARP.txt" LogicalName="ThirdParty.OpenCvSharp.txt" /></ItemGroup>
 </Project>
