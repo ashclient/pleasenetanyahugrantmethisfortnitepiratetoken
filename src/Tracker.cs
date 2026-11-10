@@ -39,6 +39,10 @@ public sealed class Tracker
     private bool gameplaySeen;
     private DateTimeOffset? lastGameplayAt, lastMatchSample, startCandidateAt;
     private int startCandidateSamples;
+    private DateTimeOffset? lastLobbySample, lobbyCandidateAt, lobbyBoundary;
+    private int lobbyCandidateSamples, lobbyAbsentSamples;
+    private bool lobbyCleared;
+    public bool InLobby { get; private set; }
     private readonly Dictionary<string, int> absentMetadata = [];
     public MatchRecord? Current { get; private set; }
     public string LastDecision { get; private set; } = "No frame processed yet";
@@ -53,6 +57,7 @@ public sealed class Tracker
     }
     public void ReplayApplied(Guid id)
     {
+        if(lobbyCleared) return; // A late replay updates history, never the cleared lobby counter.
         var match = ledger.Matches.First(x=>x.Id==id);
         if(Current is null || Current.Ended.HasValue && match.Started>Current.Started) Current=match;
         if(Current.Id == id) Phase="Match finished · replay checked";
@@ -67,6 +72,7 @@ public sealed class Tracker
 
     void BeginMatch(DateTimeOffset at, bool partial)
     {
+        InLobby=false; lobbyCleared=false; lobbyCandidateAt=null; lobbyCandidateSamples=0;
         if (Current is not null && !Current.Ended.HasValue) Current.Ended = at;
         Current = new MatchRecord { Started = at, Partial = partial };
         ledger.Matches.Add(Current);
@@ -74,6 +80,40 @@ public sealed class Tracker
         startCandidateAt = null; startCandidateSamples = 0;
         latched.Clear(); lastSeen.Clear(); absentMetadata.Clear();
         Phase = partial ? "Partial match · opened mid-game" : "New match · counter reset";
+    }
+
+    bool ObserveLobby(IReadOnlyList<Observation> lines,DateTimeOffset now)
+    {
+        var marker=lines.LastOrDefault(x=>x.Source=="lobby-pass");
+        if(marker is null) return false;
+        var at=marker.CapturedAt ?? now;
+        if(lastLobbySample.HasValue && at<=lastLobbySample.Value) return false;
+        lastLobbySample=at;
+        if(lastGameplayAt.HasValue && at<=lastGameplayAt.Value || Current is not null && at<Current.Started) return false;
+        var lobby=lines.Where(x=>x.Source=="lobby-ocr" && (x.CapturedAt ?? at)==at).ToList();
+        string nav=string.Join(" ",lobby.Where(x=>x.Y<.18).Select(x=>x.Text));
+        string panel=string.Join(" ",lobby.Where(x=>x.Y>.35).Select(x=>x.Text));
+        int tabs=new[]{@"\bPLAY\b|プレイ",@"\bLOCKER\b|ロッカー",@"\bSHOP\b|ショップ",@"BATTLE\s?PASS|バトルパス",@"\bQUESTS\b|クエスト"}.Count(p=>Regex.IsMatch(nav,p));
+        bool action=Regex.IsMatch(panel,@"\b(PLAY|READY|UNREADY|MATCHMAKING|NOT READY)\b|プレイ|準備(OK|オーケー|完了)|マッチメイキング");
+        // A menu command is never evidence that the player has reached the lobby.
+        bool positive=tabs>=2 && action && !Regex.IsMatch(panel,@"RETURN TO LOBBY|ロビーに戻る");
+        if(!positive)
+        {
+            lobbyCandidateAt=null; lobbyCandidateSamples=0;
+            if(++lobbyAbsentSamples>=2) InLobby=false;
+            return false;
+        }
+        lobbyAbsentSamples=0;
+        if(InLobby) return false;
+        if(!lobbyCandidateAt.HasValue || at-lobbyCandidateAt.Value>TimeSpan.FromSeconds(8))
+        { lobbyCandidateAt=at; lobbyCandidateSamples=1; return false; }
+        if(++lobbyCandidateSamples<2 || at-lobbyCandidateAt.Value<TimeSpan.FromMilliseconds(300)) return false;
+        if(Current is not null && !Current.Ended.HasValue) Current.Ended=lobbyCandidateAt.Value;
+        Current=null; InLobby=true; lobbyCleared=true; lobbyBoundary=at; gameplaySeen=false;
+        startCandidateAt=null; startCandidateSamples=0;
+        latched.Clear();lastSeen.Clear();absentMetadata.Clear();
+        Phase="Lobby · match counter reset";
+        return true;
     }
 
     bool ObserveMatch(IReadOnlyList<Observation> lines, DateTimeOffset now, bool visualActive)
@@ -84,6 +124,7 @@ public sealed class Tracker
         bool headerSample = samples.Any(x => x.Source == "match-pass");
         bool dedicatedHeader = visualActive || headerSample;
         var at = samples.Where(x => !headerSample || x.Source == "match-pass").Select(x => x.CapturedAt).Where(x => x.HasValue).Max() ?? now;
+        if(lobbyBoundary.HasValue && at<=lobbyBoundary.Value) return false;
         string header = string.Join(" ", samples.Where(x => !dedicatedHeader || x.Source == "match-ocr").Select(x => x.Text));
         string allText = string.Join(" ", samples.Select(x => x.Text));
         bool start = Regex.IsMatch(header, @"WAITING F[O0]R (OTHER )?PLAYERS|BATTLE\s?BUS (IS )?(LAUNCHING|LEAVING)|EVERYBODY OFF.*LAST STOP")
@@ -123,10 +164,13 @@ public sealed class Tracker
         bool visualActive = lines.Any(x => x.Source == "visual-active");
         bool metadataFrame = lines.Any(x => x.Source == "metadata-pass");
         var normalized = lines.Select(x => x with { Text = Normalize(x.Text) }).ToList();
-        bool changed = ObserveMatch(normalized, now, visualActive);
+        bool changed = ObserveLobby(normalized,now);
+        changed = ObserveMatch(normalized, now, visualActive) || changed;
+        if(InLobby) { LastDecision="Lobby · match count 0"; return changed; }
         // Restrict chest notifications to the central HUD, excluding quest lists and feed.
         var center = normalized.Where(x => x.X is > .18 and < .83 && x.Y is > .12 and < .88
-            && (!x.CapturedAt.HasValue || Current is null || x.CapturedAt.Value >= Current.Started)).ToList();
+            && (!x.CapturedAt.HasValue || Current is null || x.CapturedAt.Value >= Current.Started)
+            && (!x.CapturedAt.HasValue || !lobbyBoundary.HasValue || x.CapturedAt.Value>=lobbyBoundary.Value)).ToList();
         bool Xp(Observation line) => Regex.IsMatch(line.Text, @"[0-9][0-9 ,+]*\s*X\s*P(?![A-Z])");
         bool Notification(Observation line)
         {

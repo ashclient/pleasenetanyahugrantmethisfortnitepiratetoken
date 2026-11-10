@@ -74,6 +74,22 @@ static class Program
                 matchTracker.Process(HeaderBatch(matchAt.AddSeconds(20.7)), matchAt.AddSeconds(20.7));
                 if (matchLedger.Matches.Count != 2 || matchTracker.Current?.Chests != 0 || matchLedger.Totals.GetValueOrDefault("Chest") != 1)
                     throw new Exception("Packaged match-header OCR/reset integration failed: " + string.Join(" | ", headers.Select(x => x.Text)));
+                using var lobbySample = new Bitmap(1600,900);
+                using(var g = Graphics.FromImage(lobbySample))
+                {
+                    g.Clear(Color.FromArgb(25,55,80)); using var font=new Font("Segoe UI",30,FontStyle.Bold);
+                    g.DrawString("PLAY     LOCKER     SHOP",font,Brushes.White,100,40);
+                    g.DrawString("READY!",font,Brushes.White,100,650);
+                }
+                var lobbyLines=Task.Run(()=>capture.ReadMatchHeader(lobbySample)).GetAwaiter().GetResult();
+                List<Observation> LobbyBatch(DateTimeOffset at) => [new("active",0,0,"visual-active"),new("header",0,0,"match-pass",at),..lobbyLines.Select(x=>x with {CapturedAt=at})];
+                matchTracker.Process([new("active",0,0,"visual-active"),new("opening",.7,.32,"event-chest")],matchAt.AddSeconds(30));
+                var beforeLobby=matchTracker.Current!.Id;
+                matchTracker.Process(LobbyBatch(matchAt.AddSeconds(40)),matchAt.AddSeconds(40));
+                matchTracker.Process(LobbyBatch(matchAt.AddSeconds(40.7)),matchAt.AddSeconds(40.7));
+                matchTracker.ReplayApplied(beforeLobby);
+                if(!matchTracker.InLobby || matchTracker.Current is not null || matchLedger.Totals.GetValueOrDefault("Chest")!=2)
+                    throw new Exception("Packaged lobby OCR/reset integration failed: "+string.Join(" | ",lobbyLines.Select(x=>x.Text)));
                 using var japaneseSample = new Bitmap(1600, 900);
                 using (var g = Graphics.FromImage(japaneseSample))
                 {
@@ -99,7 +115,7 @@ static class Program
                     japaneseReport = "SKIPPED: Japanese OCR integration; this test machine lacks the Japanese OCR feature. Japanese parsing tests are separate; live Japanese game capture still needs validation.";
                     File.WriteAllText("japanese-ocr.txt", japaneseReport);
                 }
-                File.WriteAllText("smoke-test.txt", "PASS: bundled replay worker hash, extraction, process launch, parser construction, container classifier and corresponding source archive; per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR reads the synthetic metadata text and dedicated waiting header; short-match reset preserves lifetime total; live chest counts are checked against recorded sequences.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Encrypted replay parsing and destroyed-chest attribution still need a real completed replay from the player PC.");
+                File.WriteAllText("smoke-test.txt", "PASS: bundled replay worker hash, extraction, process launch, parser construction, container classifier and corresponding source archive; per-pixel overlay rendered; transparent corners; large counts never overlap at 150% DPI; click-through toggles; Alt+T registers; packaged English Windows OCR reads the synthetic metadata text and dedicated waiting header; short-match and lobby resets preserve lifetime totals; late replay cannot restore the lobby counter; live chest counts are checked against recorded sequences.\n" + japaneseReport + "\nLive popup-sequence regression results are in live-regression.txt. Encrypted replay parsing and destroyed-chest attribution still need a real completed replay from the player PC.");
                 return 0;
             }
             catch (Exception e) { File.WriteAllText("smoke-test.txt", e.ToString()); return 1; }

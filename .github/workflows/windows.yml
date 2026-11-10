@@ -62,15 +62,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "v0.4.0-build.${{ github.run_number }}"
+          $tag = "v0.4.1-build.${{ github.run_number }}"
           $notes = @'
-          Adds automatic completed-replay checking alongside the existing live overlay. The bundled independent reader uses LED-N's pinned parser to read destroyed-chest attribution (including support destruction/explosions) for the player recording each replay. After a match ends, only the deficit between its replay total and its saved live count is added; chests already counted live are not added twice. History shows the replay's destroyed count separately. Reward counts still use the live detector.
+          The live match counter now clears to zero when the lobby is confirmed, preserving the previous match in history and lifetime totals. English/Japanese lobby navigation plus the lower Play/Ready panel must be present in two fresh screen samples; an in-match Return to lobby button is not enough. A late replay correction updates the finished match without putting its old count back on the overlay. Repeated lobby frames do not create empty matches. Waiting/bus detection remains a fallback for the next game.
 
-          Turn on Fortnite Settings → Game → Replays → Record Replays. The default Saved/Demos folder is checked automatically; a custom folder and disable toggle are available in the tray. Checking starts with games completed after the first launch of this version. Live encrypted replays wait for the decryption key, normally written at match end. Missing keys, incomplete files, unsupported game updates or ambiguous match histories leave saved counts unchanged and show a status/error. Lower replay totals are flagged instead of deleting live history.
+          The dedicated match reader now also reads full-screen lobby UI. Existing live chest matching, transparent overlay, Alt+T, rewards and completed-replay checking are retained. Record Replays must be enabled for after-match destroyed-chest reconciliation; live gameplay needs Windowed Fullscreen and the selected Windows OCR language feature. Real Japanese lobby capture and real completed replay attribution still need verification on the player PC.
 
-          This is experimental: parser construction, bundled-worker launch/source extraction and reconciliation are tested, alongside the existing 10 recorded live chest sequences and Japanese screenshot tests. Actual encrypted replay parsing and player attribution have not yet been verified with this user's completed replay. Do not treat counts as authoritative game telemetry. The live chest detector, transparent overlay, Alt+T and match-reset logic are retained.
+          Checks include synthetic lobby lifecycle regressions, delayed frames, false menu/quest cues, late replay correction, packaged English Windows lobby OCR/reset, existing match/reconciliation checks, 10 recorded English live chest sequences, Japanese screenshot tests, overlay transparency/layout, click-through and Alt+T. Japanese Windows OCR integration is skipped if unavailable on the runner.
 
-          Replay worker corresponding source and all original licenses are in ReplayWorkerSource.zip (also extractable from the tray). The independent GPL-3.0-or-later worker uses the MIT LED-N/FortniteReplayDecompressor code and GPL OozSharp decompressor. No game memory access, injection, replay modification or automatic uploads.
+          ReplayWorkerSource.zip contains the independent GPL-3.0-or-later worker's complete corresponding source and notices and is also extractable from the tray. No game memory access, injection, replay modification or automatic uploads.
           '@
           $notes | Set-Content release-notes.txt
           gh release create $tag dist/TreasureLedger.exe dist/SHA256SUMS.txt worker-dist/ReplayWorkerSource.zip --target '${{ github.sha }}' --title "Treasure Ledger $tag" --notes-file release-notes.txt --prerelease

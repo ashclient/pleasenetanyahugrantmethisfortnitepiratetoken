@@ -120,7 +120,13 @@ public sealed class GameCapture
     internal async Task<List<Observation>> ReadMatchHeader(Bitmap source)
     {
         var region = new Rectangle((int)(source.Width * .28), (int)(source.Height * .01), (int)(source.Width * .44), (int)(source.Height * .20));
-        return (await ReadRegion(source, region, false, 1400, matchEngine)).Select(x => x with { Source = "match-ocr" }).ToList();
+        var result = (await ReadRegion(source, region, false, 1400, matchEngine)).Select(x => x with { Source = "match-ocr" }).ToList();
+        // Lobby navigation and the Play/Ready panel are outside the bus-header
+        // crop. Read their screen positions together to distinguish the lobby
+        // from an in-match "Return to lobby" menu button.
+        result.Add(new Observation("Lobby sample",0,0,"lobby-pass"));
+        result.AddRange((await ReadRegion(source,new Rectangle(0,0,source.Width,source.Height),false,1920,matchEngine)).Select(x=>x with {Source="lobby-ocr"}));
+        return result;
     }
     void EnqueueSample(string lane, DateTimeOffset at, List<Observation> items, string marker)
     {
