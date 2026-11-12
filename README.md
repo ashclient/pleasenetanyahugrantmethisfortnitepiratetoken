@@ -1,8 +1,8 @@
 ## Cloudflare deployment through GitHub
 
-Sync is retained, and the backend is being moved from the owner-private ChatGPT website to a standalone Cloudflare Worker with no web pages. **The currently released EXE still points to the old private service, so online sync is unavailable until the Cloudflare deployment and rebuilt EXE succeed.** Personal tracking/history work locally.
+Sync runs directly on a standalone Cloudflare Worker with no web pages. The previous ChatGPT website remains owner-private. **Use [the Cloudflare-connected EXE](https://github.com/ashclient/pleasenetanyahugrantmethisfortnitepiratetoken/releases/download/v0.5.0-build.43233943121/TreasureLedger.exe); build.26 and earlier still point to the old service.** Personal tracking/history remain local. No Cloudflare or ChatGPT login is needed in the app. Create/join a group in Linked counts and clients sync automatically.
 
-The repository's **Deploy Cloudflare sync and build EXE** action handles D1 provisioning, deployment, two-client checks, endpoint configuration and the finished Windows release. The owner must first add `CLOUDFLARE_API_TOKEN` as a GitHub Actions repository secret (the account ID is detected automatically when the token identifies one account) using their own browser. End users still download just the EXE. See [deployment setup](sync-service/README.md). No credentials go in source, chat or the EXE.
+The repository's **Deploy Cloudflare sync and build EXE** action handles D1 provisioning, deployment, two-client checks, endpoint configuration and the finished Windows release. This repository is already configured. For a new deployment, the owner adds `CLOUDFLARE_API_TOKEN` as a GitHub Actions repository secret (the account ID is detected automatically when the token identifies one account). End users still download just the EXE. See [deployment setup](sync-service/README.md). No credentials go in source, chat or the EXE.
 
 ## Linked counts and retained match display (0.5.0)
 
