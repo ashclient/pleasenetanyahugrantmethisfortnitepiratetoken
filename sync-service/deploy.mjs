@@ -26,7 +26,12 @@ for(const sql of fs.readFileSync('schema.sql','utf8').split('--> statement-break
 const output=execFileSync('npx',['--no-install','wrangler','deploy','--config','wrangler.jsonc'],{encoding:'utf8',maxBuffer:1024*1024});process.stdout.write(output);
 const matches=[...output.matchAll(/https:\/\/treasure-ledger-sync\.[a-z0-9-]+\.workers\.dev\b/g)];if(!matches.length)throw new Error('No workers.dev URL returned; enable the Cloudflare account workers.dev subdomain.');
 const endpoint=matches.at(-1)[0]+'/api/v1/';
-const health=await fetch(endpoint+'health');if(!health.ok||!(await health.json()).ok)throw new Error('Deployed Worker health check failed.');
+let healthy=false,lastStatus='unreachable';
+for(let attempt=0;attempt<6;attempt++){
+ try{const response=await fetch(endpoint+'health',{signal:AbortSignal.timeout(10000)});lastStatus=String(response.status);if(response.ok&&(await response.json()).ok){healthy=true;break;}}catch{}
+ if(attempt<5)await new Promise(resolve=>setTimeout(resolve,2000));
+}
+if(!healthy)throw new Error(`Deployed Worker health check failed (${lastStatus}) after waiting for initial propagation.`);
 fs.writeFileSync('endpoint.json',JSON.stringify({endpoint},null,2)+'\n');
 if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`endpoint=${endpoint}\n`);
 if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`Cloudflare sync API deployed and healthy: ${endpoint}\nNo public web pages. Group access requires pairing credentials.\n`);
