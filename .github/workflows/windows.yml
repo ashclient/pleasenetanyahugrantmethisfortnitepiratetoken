@@ -60,6 +60,7 @@ jobs:
             overlay-preview.png
             overlay-large-counts.png
             overlay-background-check.png
+            settings-*.png
             smoke-test.txt
             visual-regression.txt
             live-regression.txt
@@ -70,17 +71,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "v0.4.3-build.${{ github.run_number }}"
+          $tag = "v0.5.0-build.${{ github.run_number }}"
           $notes = @'
-          Fixes the replay UTC conversion bug confirmed by player diagnostics: the parser's unspecified-kind UTC ticks were incorrectly passed through local-time conversion, shifting Pacific timestamps by eight hours and preventing match reconciliation. Preserving their UTC meaning makes the anonymized player case reconcile 13 live openings with 15 replay chests, including two destroyed chests. Existing replay files are retried when this build starts, subject to the retained tracking start date.
+          Settings has separate Overview, Matches, Rewards, Linked counts, Settings and Diagnostics pages. Match rows update in place; tracking ticks no longer rebuild the lists or interrupt scrolling and selection.
 
-          Reward recognition now uses only focused award-banner OCR, pairing its specific found/received header with a nearby category from the same captured sample. Broad scene OCR, generic Japanese acquired/XP text, owned/preview panels, unrelated inventory labels and ambiguous multi-category cards cannot count. Production capture must observe a clean award area before counting its first new drop. Gauntlet and back-bling identities cannot increment again after OCR flicker or restart; unidentified repeats are conservatively suppressed. Existing historical reward entries are retained rather than guessed away.
+          Chest overlay order: current game / all-time tracked / linked all-time tracked. The previous game stays visible in the lobby, receives replay corrections, and switches only after the next game's first chest and the prior replay check. New-game detections keep saving while waiting. If a replay is unavailable, Settings can release the held display; disabling replay checks also releases it.
 
-          History & settings → Review rewards lets you exclude false saved reward entries from totals and restore them later. Chest history is unaffected. English remains the new-install default; saved Japanese selections, rare-chest backup, lobby reset, Alt+T, transparency and after-match replay checks remain.
+          Online invite-code pairing shares display names and total chest/reward counts with your private group. Each installation has a persistent identity and revisioned snapshot: reopening replaces its contribution, never adds its lifetime count twice. Linked totals include you; offline peers keep their last synced contribution. Creators can remove members (rotating the invite code) or close the group. No screenshots, replays or match history are uploaded. Keep invite codes private; deleting local pairing identity requires removing its previous member entry.
 
-          Validation includes an anonymized relative-timing reproduction of the supplied replay diagnosis, UTC-kind handling, strict reward evidence/startup/deduplication/exclusion regressions, the packaged worker, existing Windows OCR/overlay checks, 10 recorded English chest sequences and Japanese screenshot tests. Japanese Windows OCR integration is skipped where its optional feature is absent. No full player screenshots or raw diagnostic history are included in the source.
+          Existing recognition, history, transparency, Alt+T interaction lock and language preferences remain. English is the new-install default. ReplayWorkerSource.zip contains the corresponding independent GPL worker source and licenses.
 
-          ReplayWorkerSource.zip contains the complete corresponding source/notices of the independent GPL worker, also extractable from the tray. No game memory access, injection, replay modification or automatic uploads.
+          Validation: counting/history/display lifecycle and pairing persistence tests, packaged worker/OCR/live notification regressions, settings scroll/selection checks and rendered settings previews. Live gameplay capture still depends on visible Fortnite notifications and available completed replays.
           '@
           $notes | Set-Content release-notes.txt
           gh release create $tag dist/TreasureLedger.exe dist/SHA256SUMS.txt worker-dist/ReplayWorkerSource.zip --target '${{ github.sha }}' --title "Treasure Ledger $tag" --notes-file release-notes.txt --prerelease

@@ -160,11 +160,11 @@ lobbyTracker.Process(Lobby(20),time.AddSeconds(20));
 lobbyTracker.Process([Active()],time.AddSeconds(20.1));
 Check(lobbyTracker.Current?.Chests==1,"Single lobby frame does not erase the displayed match");
 lobbyTracker.Process(Lobby(20.7),time.AddSeconds(20.7));
-Check(lobbyTracker.InLobby && lobbyTracker.Current is null && lobbyLedger.Totals["Chest"]==1 && lobbyLedger.Matches.Count==1 && lobbyLedger.Matches[0].Ended.HasValue,"Confirmed lobby clears only current display and preserves the completed match and lifetime total");
+Check(lobbyTracker.InLobby && lobbyTracker.Current is null && lobbyLedger.Totals["Chest"]==1 && lobbyLedger.Matches.Count==1 && lobbyLedger.Matches[0].Ended.HasValue,"Confirmed lobby closes active tracking and preserves the completed match and lifetime total");
 lobbyTracker.Process(Lobby(22),time.AddSeconds(22));lobbyTracker.Process(Lobby(23),time.AddSeconds(23));
 Check(lobbyTracker.Current is null && lobbyLedger.Matches.Count==1,"Remaining in lobby never creates empty matches");
 lobbyTracker.ReplayApplied(finishedId);
-Check(lobbyTracker.Current is null,"Late replay completion cannot restore the lobby's cleared counter");
+Check(lobbyTracker.Current is null,"Late replay does not resume active lobby tracking");
 lobbyTracker.Process(Opening(),time.AddSeconds(24));
 Check(lobbyTracker.Current is null && lobbyLedger.Totals["Chest"]==1,"Late live notification is ignored while confirmed in lobby");
 lobbyTracker.Process(Header(30,"WAITING FOR PLAYERS"),time.AddSeconds(30));lobbyTracker.Process(Opening(),time.AddSeconds(35));
@@ -246,4 +246,34 @@ menuRewardTracker.Process(Opening(),time);menuRewardTracker.Process(Lobby(5),tim
 menuRewardTracker.Process(Header(6,""),time.AddSeconds(6));menuRewardTracker.Process(Header(6.7,""),time.AddSeconds(6.7));
 menuRewardTracker.Process(CleanAwards(7),time.AddSeconds(7));menuRewardTracker.Process(CleanAwards(7.5),time.AddSeconds(7.5));menuRewardTracker.Process(Award(8,"PICKAXE"),time.AddSeconds(8));
 Check(!menuRewardLedger.Totals.ContainsKey("Pickaxe") && menuRewardLedger.Totals["Chest"]==1,"Opening an owned-item screen after lobby tabs disappear cannot create a reward");
+
+var heldLedger=new Ledger();var held=new Tracker(heldLedger);held.SetReplayWaiting(true);
+held.Process(Opening(),time);var first=held.Current!;
+for(int i=1;i<13;i++)held.Process(Opening(),time.AddSeconds(i));
+held.Process(Lobby(20),time.AddSeconds(20));held.Process(Lobby(20.7),time.AddSeconds(20.7));
+Check(held.Current is null&&held.DisplayedChests==13,"Lobby retains the last game instead of displaying zero");
+first.Events.Add(new(time,"Chest","replay"));first.Events.Add(new(time,"Chest","replay"));first.ReplaySessionId="first";held.ReplayApplied(first.Id);
+Check(held.DisplayedChests==15,"Replay correction updates the held game's display");
+held.Process(Header(30,"WAITING FOR PLAYERS"),time.AddSeconds(30));
+Check(held.DisplayedChests==15,"Next game's waiting phase keeps the corrected previous total");
+held.Process(Opening(),time.AddSeconds(35));
+Check(held.DisplayedChests==1&&heldLedger.Totals["Chest"]==16,"First next-game chest switches directly to one while lifetime stays cumulative");
+held.ReplayApplied(first.Id);Check(held.DisplayedChests==1,"Old replay cannot replace the new game's display");
+var second=held.Current!;held.Process(Lobby(45),time.AddSeconds(45));held.Process(Lobby(45.7),time.AddSeconds(45.7));held.Process(Header(50,"WAITING FOR PLAYERS"),time.AddSeconds(50));
+held.Process(Opening(),time.AddSeconds(55));held.Process(Opening(),time.AddSeconds(56));
+Check(held.DisplayMatch?.Id==second.Id&&held.DisplayedChests==1&&held.Current!.Chests==2&&held.DisplayWaitingForReplay,"New-game chests are saved while the prior replay is pending");
+var persistedHold=JsonSerializer.Deserialize<Ledger>(JsonSerializer.Serialize(heldLedger))!;var resumedHold=new Tracker(persistedHold);resumedHold.SetReplayWaiting(true);
+Check(resumedHold.DisplayedChests==1&&resumedHold.DisplayWaitingForReplay,"Display hold and pending match survive restart");
+second.ReplaySessionId="second";held.ReplayApplied(second.Id);
+Check(held.DisplayedChests==2&&!held.DisplayWaitingForReplay,"Delayed replay releases the display to already-counted new-game chests");
+resumedHold.SetReplayWaiting(false);Check(resumedHold.DisplayedChests==2,"Disabling unavailable replay checks releases the pending game");
+var linkPath=Path.Combine(Path.GetTempPath(),"ledger-link-test-"+Guid.NewGuid().ToString("N"));
+try{
+ var client=new LinkClient(linkPath);string identity=client.Config.MemberId;
+ Check(client.Combined(10) is null,"Unpaired linked count stays unavailable");
+ client.Config.GroupId="test";client.Config.Cache=new(){Members=[new(){Id=identity,Chests=10},new(){Id="peer",Chests=20}]};client.Rename("Tester");
+ Check(client.Combined(12)==32,"Linked total includes fresh local counts exactly once and cached peers");
+ var reopened=new LinkClient(linkPath);Check(reopened.Config.MemberId==identity&&reopened.Combined(12)==32,"Restart retains member identity and never adds a second lifetime snapshot");
+ Check(reopened.Combined(8)==28,"Legitimate personal corrections replace the old contribution");
+}finally{Directory.Delete(linkPath,true);}
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");

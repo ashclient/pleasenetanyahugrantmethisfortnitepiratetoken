@@ -1,3 +1,13 @@
+## Linked counts and retained match display (0.5.0)
+
+The chest overlay reads **current game / all-time tracked / linked all-time tracked**. Unpaired clients show a dash for the linked total. Settings → Linked counts lets one person create a group and share its invite code. Others join using a display name; clients sync automatically every 10 seconds while open. The total includes you and each member's last synced contribution, including offline members. Reopening the same installation replaces its snapshot; it never adds the saved lifetime count twice. Rewards are shared too, in the settings Rewards table. Only display names and aggregate totals leave the PC. Keep invite codes private. Removing a member rotates the invite; closing a group deletes its online records. Pairing identity is stored locally in linked-counts.json: preserve it when upgrading. If you delete it or move to another PC, ask the creator to remove the old member to avoid counting both installations. This is installation-based pairing, not an Epic account login.
+
+The previous game remains on the overlay in the lobby, including replay corrections. The display changes directly to the next game's count on its first chest, after the previous replay check finishes. If the replay is late, new chests still save while the old count is held. If Record Replays is off or its replay cannot be read, use Settings → Show current game or disable replay checking. Lifetime counts keep accumulating throughout.
+
+History tables have independent scrollbars and update rows in place. Times use the Windows timezone. Settings pages and scrolling are checked by the packaged self-test; settings-*.png previews are included in CI artifacts.
+
+Sync service: https://treasure-ledger-link.mlitw002.chatgpt.site (invite/member capability authentication, no public count listing). The source is preserved in the Sites source repository; this app contains the native client and protocol types.
+
 # Treasure Ledger
 
 A small transparent Windows overlay that automatically tracks visible Fortnite chest-opening and treasure-award notifications. Japanese and English HUDs are supported. Counters persist between runs.

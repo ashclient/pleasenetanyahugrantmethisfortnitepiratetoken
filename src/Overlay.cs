@@ -69,16 +69,16 @@ public sealed class OverlayWindow : Form
         ReleaseCapture(); SendMessage(Handle, 0xA1, (IntPtr)2, IntPtr.Zero);
     }
     protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); if (Visible) Present(); }
-    public void UpdateCounts(Ledger ledger, MatchRecord? current, string status, string language)
+    public void UpdateCounts(Ledger ledger, MatchRecord? current, string status, string language, int? currentGameCount=null, long? linkedTotal=null)
     {
         var counts = ledger.Totals;
-        cells = [("Chest", $"{current?.Chests ?? 0:N0} / {counts.GetValueOrDefault("Chest"):N0}")];
+        cells = [("Chest", $"{currentGameCount ?? current?.Chests ?? 0:N0} / {counts.GetValueOrDefault("Chest"):N0} / {(linkedTotal.HasValue ? linkedTotal.Value.ToString("N0") : "—")}")];
         foreach (string kind in Tracker.Rewards)
             if (kind is "Gizmo" or "Loading screen" or "Jam track" || counts.GetValueOrDefault(kind) > 0)
                 cells.Add((kind, counts.GetValueOrDefault(kind).ToString("N0")));
         stateColor = !locked ? Color.FromArgb(190, 161, 255) : status == "Paused" ? Color.FromArgb(249, 118, 151)
             : status.StartsWith("Watching") ? Color.FromArgb(106, 230, 181) : Color.FromArgb(245, 186, 91);
-        hint.SetToolTip(this, $"Chest: this match / total tracked\nReward icons: total tracked\n{status}\n{(language == "ja-JP" ? "Japanese" : "English")} HUD · Alt+T to {(locked ? "unlock" : "lock")} interaction\nUnlocked: drag to move, right-click for settings");
+        hint.SetToolTip(this, $"Chest: current game / all-time tracked / linked all-time (includes you)\nReward icons: total tracked\n{status}\n{(language == "ja-JP" ? "Japanese" : "English")} HUD · Alt+T to {(locked ? "unlock" : "lock")} interaction\nUnlocked: drag to move, right-click for settings");
         string signature = string.Join("|", cells.Select(x => x.Kind + ":" + x.Value)) + ":" + stateColor.ToArgb() + ":" + locked;
         if (Visible && signature != renderedSignature) { renderedSignature = signature; Present(); }
     }

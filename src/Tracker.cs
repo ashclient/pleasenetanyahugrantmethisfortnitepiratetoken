@@ -25,6 +25,8 @@ public sealed class Ledger
 {
     public int SchemaVersion { get; set; } = 1;
     public DateTimeOffset? ReplayTrackingFrom { get; set; }
+    public Guid? DisplayMatchId { get; set; }
+    public Guid? PendingDisplayMatchId { get; set; }
     public List<MatchRecord> Matches { get; set; } = [];
     [System.Text.Json.Serialization.JsonIgnore]
     public IEnumerable<LedgerEvent> CountedEvents => Matches.SelectMany(x=>x.Events).Where(e=>!e.Excluded);
@@ -51,6 +53,10 @@ public sealed class Tracker
     public bool InLobby { get; private set; }
     private readonly Dictionary<string, int> absentMetadata = [];
     public MatchRecord? Current { get; private set; }
+    public bool WaitForReplay { get; private set; }
+    public MatchRecord? DisplayMatch => ledger.Matches.FirstOrDefault(m=>m.Id==ledger.DisplayMatchId);
+    public int DisplayedChests => DisplayMatch is not { } m ? 0 : m.ReplaySessionId is { } session ? ledger.Matches.Where(x=>x.ReplaySessionId==session).Sum(x=>x.Chests) : m.Chests;
+    public bool DisplayWaitingForReplay => WaitForReplay && ledger.PendingDisplayMatchId.HasValue && DisplayMatch?.ReplaySessionId is null;
     public string LastDecision { get; private set; } = "No frame processed yet";
     public string Phase { get; private set; } = "Waiting for a match";
 
@@ -59,14 +65,29 @@ public sealed class Tracker
         this.ledger = ledger;
         Current = ledger.Matches.LastOrDefault(x => !x.Ended.HasValue);
         gameplaySeen = Current?.Events.Count > 0;
+        if(!ledger.DisplayMatchId.HasValue || DisplayMatch is null) ledger.DisplayMatchId=ledger.Matches.Where(m=>m.Chests>0).OrderByDescending(m=>m.Started).FirstOrDefault()?.Id;
         if (Current is not null) Phase = "Resumed tracked match";
     }
     public void ReplayApplied(Guid id)
     {
-        if(lobbyCleared) return; // A late replay updates history, never the cleared lobby counter.
         var match = ledger.Matches.First(x=>x.Id==id);
-        if(Current is null || Current.Ended.HasValue && match.Started>Current.Started) Current=match;
-        if(Current.Id == id) Phase="Match finished · replay checked";
+        if(DisplayMatch is null || match.Started>DisplayMatch.Started && !ledger.PendingDisplayMatchId.HasValue) ledger.DisplayMatchId=id;
+        AdvanceDisplay();
+        if(Current?.Id == id) Phase="Match finished · replay checked";
+    }
+    public void SetReplayWaiting(bool enabled) { WaitForReplay=enabled;AdvanceDisplay(); }
+    public void ReleaseHeldDisplay() { if(ledger.PendingDisplayMatchId is {} next) {ledger.DisplayMatchId=next;ledger.PendingDisplayMatchId=null;} }
+    void ChestOpenedForDisplay()
+    {
+        if(Current is null) return;
+        if(DisplayMatch is null || DisplayMatch.Id==Current.Id) {ledger.DisplayMatchId=Current.Id;ledger.PendingDisplayMatchId=null;return;}
+        ledger.PendingDisplayMatchId=Current.Id;AdvanceDisplay();
+    }
+    void AdvanceDisplay()
+    {
+        if(ledger.PendingDisplayMatchId is not {} next) return;
+        if(WaitForReplay && DisplayMatch is {} previous && previous.ReplaySessionId is null) return;
+        ledger.DisplayMatchId=next;ledger.PendingDisplayMatchId=null;
     }
 
     static string Normalize(string s)
@@ -85,7 +106,7 @@ public sealed class Tracker
         gameplaySeen = partial;
         startCandidateAt = null; startCandidateSamples = 0;
         latched.Clear(); lastSeen.Clear(); absentMetadata.Clear();
-        Phase = partial ? "Partial match · opened mid-game" : "New match · counter reset";
+        Phase = partial ? "Partial match · opened mid-game" : "New match · display switches on first chest";
     }
 
     bool ObserveLobby(IReadOnlyList<Observation> lines,DateTimeOffset now)
@@ -118,7 +139,7 @@ public sealed class Tracker
         Current=null; InLobby=true; lobbyCleared=true; lobbyBoundary=at; gameplaySeen=false;
         startCandidateAt=null; startCandidateSamples=0;
         latched.Clear();lastSeen.Clear();absentMetadata.Clear();
-        Phase="Lobby · match counter reset";
+        Phase="Lobby · previous match retained";
         return true;
     }
 
@@ -198,6 +219,7 @@ public sealed class Tracker
             if (Current is null || Current.Ended.HasValue) BeginMatch(now, true);
             foreach (var observation in lines.Where(x => x.Source == "event-chest")) Current.Events.Add(new LedgerEvent(now, "Chest", observation.Text));
             gameplaySeen = true; lastGameplayAt = now; Phase = "In match";
+            ChestOpenedForDisplay();
             changed = true;
         }
         var hits = new Dictionary<string, string>();
@@ -232,6 +254,7 @@ public sealed class Tracker
             if (!latched.Add(hit.Key)) continue;
             if (hit.Key == "Chest") { gameplaySeen = true; lastGameplayAt = now; Phase = "In match"; }
             Current.Events.Add(new LedgerEvent(now, hit.Key, hit.Value,rewardKey));
+            if(hit.Key=="Chest") ChestOpenedForDisplay();
             changed = true;
         }
         return changed;
