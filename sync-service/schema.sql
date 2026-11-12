@@ -1,9 +1,9 @@
-CREATE TABLE `limits` (
+CREATE TABLE IF NOT EXISTS `limits` (
 	`key` text PRIMARY KEY NOT NULL,
 	`count` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE `members` (
+CREATE TABLE IF NOT EXISTS `members` (
 	`room` text NOT NULL,
 	`id` text NOT NULL,
 	`proof` text NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE `members` (
 	PRIMARY KEY(`room`, `id`)
 );
 --> statement-breakpoint
-CREATE TABLE `rooms` (
+CREATE TABLE IF NOT EXISTS `rooms` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`join_hash` text NOT NULL,

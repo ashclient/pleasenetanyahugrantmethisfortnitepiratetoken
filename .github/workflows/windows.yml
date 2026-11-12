@@ -2,6 +2,17 @@ name: Build Windows EXE
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'sync-service/**'
+      - 'scripts/test_link_service.py'
+      - '.github/workflows/cloudflare.yml'
+      - '.github/workflows/windows.yml'
+      - 'README.md'
+  workflow_call:
+    inputs:
+      sync_endpoint:
+        required: true
+        type: string
   workflow_dispatch:
 permissions:
   contents: write
@@ -10,6 +21,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure Cloudflare endpoint when available
+        env:
+          SYNC_ENDPOINT: ${{ inputs.sync_endpoint }}
+        run: python sync-service/configure_client.py
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
@@ -71,7 +86,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "v0.5.0-build.${{ github.run_number }}"
+          $tag = "v0.5.0-build.${{ github.run_id }}"
           $notes = @'
           Settings has separate Overview, Matches, Rewards, Linked counts, Settings and Diagnostics pages. Match rows update in place; tracking ticks no longer rebuild the lists or interrupt scrolling and selection.
 
