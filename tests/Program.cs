@@ -276,4 +276,6 @@ try{
  var reopened=new LinkClient(linkPath);Check(reopened.Config.MemberId==identity&&reopened.Combined(12)==32,"Restart retains member identity and never adds a second lifetime snapshot");
  Check(reopened.Combined(8)==28,"Legitimate personal corrections replace the old contribution");
 }finally{Directory.Delete(linkPath,true);}
+var emptyReplay=new MatchRecord{Started=time.AddHours(10),Ended=time.AddHours(11),ReplaySessionId="empty"};heldLedger.Matches.Add(emptyReplay);held.ReplayApplied(emptyReplay.Id);
+Check(held.DisplayedChests==2,"An empty replay cannot reset a retained display to zero");
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");

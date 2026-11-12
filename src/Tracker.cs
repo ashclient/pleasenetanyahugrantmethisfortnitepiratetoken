@@ -71,7 +71,8 @@ public sealed class Tracker
     public void ReplayApplied(Guid id)
     {
         var match = ledger.Matches.First(x=>x.Id==id);
-        if(DisplayMatch is null || match.Started>DisplayMatch.Started && !ledger.PendingDisplayMatchId.HasValue) ledger.DisplayMatchId=id;
+        if(DisplayMatch is null && match.Chests>0) ledger.DisplayMatchId=id;
+        else if(DisplayMatch is {} displayed && match.Started>displayed.Started && match.Chests>0 && !ledger.PendingDisplayMatchId.HasValue) ledger.PendingDisplayMatchId=id;
         AdvanceDisplay();
         if(Current?.Id == id) Phase="Match finished · replay checked";
     }
