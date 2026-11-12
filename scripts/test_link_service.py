@@ -1,5 +1,6 @@
-import urllib.request,json,uuid,secrets,time
-base='https://treasure-ledger-link.mlitw002.chatgpt.site/api/v1/'
+import urllib.request,json,uuid,secrets,time,os
+base=os.environ.get('TREASURE_LEDGER_SYNC_URL')
+if not base: raise SystemExit('Set TREASURE_LEDGER_SYNC_URL to the deployed Worker origin followed by /api/v1/')
 def call(path,b,auth=None):
  r=urllib.request.Request(base+path,json.dumps(b).encode(),{'User-Agent':'TreasureLedger/0.5.0','Content-Type':'application/json',**({'Authorization':'Bearer '+auth} if auth else {})})
  with urllib.request.urlopen(r,timeout=25) as x:return json.load(x)

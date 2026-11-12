@@ -1,9 +1,17 @@
-# Invite-code sync service
+# Cloudflare sync API
 
-Production: https://treasure-ledger-link.mlitw002.chatgpt.site
+The application stays a standalone Windows EXE. This directory is a standalone Cloudflare Worker plus D1 database, with no website, ChatGPT login, page routes or frontend dependencies. `worker.ts` keeps the revisioned snapshot protocol used by the native client. Requests outside `/api/v1/` return 404.
 
-These files mirror the deployed API and D1 schema. The complete deployed application source is preserved in the associated Sites source repository, commit `21e933ea376fc94a4c0611998d233533045bbce0`. `route.ts` is a Vinext/Next route at `app/api/v1/[...path]/route.ts`, using the Cloudflare `env.DB` D1 binding. Apply schema.sql when provisioning an equivalent database. The Windows client endpoint is `LinkClient.ServiceUrl`.
+## Deployment by the owner
 
-Create/join/sync replace revisioned snapshots; counts are never accumulated from repeated requests. Invite codes authorize joining; a distinct per-installation proof authorizes subsequent updates. Stored credentials are SHA-256 hashes. Group creators have a separate admin capability for removing members or deleting a group. Removing a member rotates the invite code. No public endpoint lists groups, members or counts. Health exposes only service/protocol status. HTTP bodies are bounded and D1 queries use bound parameters.
+1. Run `npm install` in this directory, then `npx wrangler login` using the Cloudflare account that should own the service.
+2. Copy `wrangler.example.jsonc` to `wrangler.jsonc`.
+3. Run `npx wrangler d1 create treasure-ledger-sync`. Put its actual database ID in `wrangler.jsonc` in place of the all-zero example.
+4. Run `npx wrangler d1 execute treasure-ledger-sync --remote --file schema.sql`.
+5. Run `npx wrangler deploy`. Set the native client's `LinkClient.ServiceUrl` to the returned Worker URL followed by `/api/v1/`, then rebuild the EXE on GitHub.
 
-Run `python scripts/test_link_service.py` from the main repository to exercise temporary synthetic members and verify cleanup. It makes no use of real player data and never prints credentials. Group creation is rate limited; do not use this integration test as a frequent health probe.
+Do not ship a Cloudflare admin token, account credential or shared master key in the EXE. The API origin must be reachable by group members, but there are no public group listings or count-read endpoints. Invite codes authorize joining; separate persistent per-installation proofs authorize subsequent sync. Group creators have a separate removal/deletion capability. Credentials are stored hashed in D1. Sharing uses only display names and totals, never screenshots, replays or match history. No browser or separate client setup is needed after the Worker endpoint is compiled into the EXE.
+
+The previous ChatGPT-hosted website has been made owner-private. Its endpoint is not usable by the existing anonymous native clients. The native app must be rebuilt with the new Worker endpoint after deployment; do not claim the migration is live before then. Existing group membership does not automatically migrate into a new database; users will create/join a group again unless the owner arranges an explicit data migration. Personal histories remain local and are uploaded as replacement snapshots on joining.
+
+`route.ts` and `schema.ts` retain the previous framework API source for provenance; `worker.ts` is the new dependency-free runtime implementation. Apply `schema.sql` to initialize D1. Test using the temporary synthetic-member integration script with its base URL set to the deployed Worker.

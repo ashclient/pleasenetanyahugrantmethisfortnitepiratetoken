@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "treasure-ledger-sync",
+  "main": "worker.ts",
+  "compatibility_date": "2026-11-12",
+  "workers_dev": true,
+  "preview_urls": false,
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "treasure-ledger-sync",
+    "database_id": "00000000-0000-0000-0000-000000000000"
+  }]
+}

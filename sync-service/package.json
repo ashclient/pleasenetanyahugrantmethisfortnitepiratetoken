@@ -1,0 +1,1 @@
+{"name":"treasure-ledger-sync","private":true,"type":"module","scripts":{"dev":"wrangler dev","deploy":"wrangler deploy","schema:local":"wrangler d1 execute treasure-ledger-sync --local --file schema.sql"},"devDependencies":{"wrangler":"4.92.0"}}
