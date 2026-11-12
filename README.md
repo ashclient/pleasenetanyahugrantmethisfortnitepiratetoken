@@ -2,7 +2,7 @@
 
 Sync is retained, and the backend is being moved from the owner-private ChatGPT website to a standalone Cloudflare Worker with no web pages. **The currently released EXE still points to the old private service, so online sync is unavailable until the Cloudflare deployment and rebuilt EXE succeed.** Personal tracking/history work locally.
 
-The repository's **Deploy Cloudflare sync and build EXE** action handles D1 provisioning, deployment, two-client checks, endpoint configuration and the finished Windows release. The owner must first add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions repository secrets using their own browser. End users still download just the EXE. See [deployment setup](sync-service/README.md). No credentials go in source, chat or the EXE.
+The repository's **Deploy Cloudflare sync and build EXE** action handles D1 provisioning, deployment, two-client checks, endpoint configuration and the finished Windows release. The owner must first add `CLOUDFLARE_API_TOKEN` as a GitHub Actions repository secret (the account ID is detected automatically when the token identifies one account) using their own browser. End users still download just the EXE. See [deployment setup](sync-service/README.md). No credentials go in source, chat or the EXE.
 
 ## Linked counts and retained match display (0.5.0)
 

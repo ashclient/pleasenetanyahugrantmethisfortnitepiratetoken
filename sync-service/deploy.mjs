@@ -1,7 +1,18 @@
 import fs from 'node:fs';
 import {execFileSync} from 'node:child_process';
-const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN;
-if(!account||!/^[a-f0-9]{32}$/i.test(account)||!token)throw new Error('Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in GitHub Actions secrets.');
+let account=process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+const token=process.env.CLOUDFLARE_API_TOKEN;
+if(!token)throw new Error('Configure CLOUDFLARE_API_TOKEN in GitHub Actions secrets.');
+if(!account){
+ const response=await fetch('https://api.cloudflare.com/client/v4/accounts?per_page=50',{headers:{Authorization:`Bearer ${token}`}});
+ const data=await response.json();
+ if(!response.ok||!data.success)throw new Error(`Cloudflare account discovery failed (${response.status}); verify Account Settings Read permission, or set CLOUDFLARE_ACCOUNT_ID.`);
+ if(data.result?.length!==1||Number(data.result_info?.total_count??data.result.length)!==1)throw new Error('The token does not identify exactly one account. Set CLOUDFLARE_ACCOUNT_ID to select the intended account.');
+ account=data.result[0].id;
+ console.log('Identified the single Cloudflare account authorized by the token.');
+}
+if(!/^[a-f0-9]{32}$/i.test(account))throw new Error('Invalid Cloudflare account ID.');
+process.env.CLOUDFLARE_ACCOUNT_ID=account;
 async function api(path,method='GET',body){
  const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
  const result=await response.json();if(!response.ok||!result.success)throw new Error(`Cloudflare ${method} request failed (${response.status}); verify token account scope and Workers/D1 permissions.`);return result;

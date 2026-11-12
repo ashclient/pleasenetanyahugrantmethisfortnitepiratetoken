@@ -4,12 +4,12 @@ The workflow **Deploy Cloudflare sync and build EXE** creates/reuses D1, deploys
 
 ## One-time owner setup
 
-In your own browser, create a Cloudflare API token restricted to the intended account with **Workers Scripts: Edit**, **D1: Edit**, and **Account Settings: Read**. Do not use a Global API Key. Copy your Cloudflare Account ID from your dashboard. In the GitHub repository open **Settings → Secrets and variables → Actions → New repository secret**, and add:
+In your own browser, create a Cloudflare API token restricted to the intended account with **Workers Scripts: Edit**, **D1: Edit**, and **Account Settings: Read**. Do not use a Global API Key. The workflow automatically identifies your account when the token is restricted to one account. In the GitHub repository open **Settings → Secrets and variables → Actions → New repository secret**, and add:
 
 - `CLOUDFLARE_API_TOKEN`: the restricted token.
-- `CLOUDFLARE_ACCOUNT_ID`: the account ID.
+- `CLOUDFLARE_ACCOUNT_ID`: optional; only needed if automatic account identification fails or the token can access multiple accounts.
 
-Do not paste tokens into chat or source files. Then open **Actions → Deploy Cloudflare sync and build EXE → Run workflow** on main. Without these secrets the workflow reports setup needed, skips deployment and creates no release. The credentials are used only by the deployment job and never included in the EXE. Confirm your Cloudflare account has a workers.dev subdomain enabled; first-time Workers setup may require doing that in your own dashboard.
+Do not paste tokens into chat or source files. Then open **Actions → Deploy Cloudflare sync and build EXE → Run workflow** on main. Without the API token the workflow reports setup needed, skips deployment and creates no release. The credentials are used only by the deployment job and never included in the EXE. Confirm your Cloudflare account has a workers.dev subdomain enabled; first-time Workers setup may require doing that in your own dashboard.
 
 The backend has no homepage (root returns 404), no public group listings, and no public count-read endpoint. Pairing credentials protect group data. The old ChatGPT-hosted website remains owner-private. Moving to a new database requires creating/joining a group again; personal saved totals remain on the PC and upload as replacement snapshots.
 
