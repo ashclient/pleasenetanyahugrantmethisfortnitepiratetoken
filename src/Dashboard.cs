@@ -72,12 +72,13 @@ public sealed class Dashboard : Form
         }
         var bottom=new Label{Dock=DockStyle.Bottom,Height=56,ForeColor=Color.FromArgb(153,171,200),Text="Alt+T  ·  overlay lock\nCounts saved on this PC",Font=new Font("Segoe UI",9)};sidebar.Controls.Add(bottom);
         var overview=Page("Overview","Your treasure, at a glance",out var overviewRoot);
+        overviewRoot.RowStyles[2].Height=150;
         var cards=new TableLayoutPanel{Dock=DockStyle.Top,Height=138,ColumnCount=3,Margin=new Padding(0,12,0,20)};
         for(int i=0;i<3;i++)cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,33.333f));
         cards.Controls.Add(Card("CURRENT GAME",current));cards.Controls.Add(Card("ALL-TIME TRACKED",personal));cards.Controls.Add(Card("LINKED ALL-TIME",linked));overviewRoot.Controls.Add(cards,0,2);
         var overviewDetails=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=5};overviewDetails.RowStyles.Add(new(SizeType.Absolute,45));overviewDetails.RowStyles.Add(new(SizeType.Absolute,54));overviewDetails.RowStyles.Add(new(SizeType.Absolute,32));overviewDetails.RowStyles.Add(new(SizeType.Percent,100));overviewDetails.RowStyles.Add(new(SizeType.Absolute,58));
         overviewDetails.Controls.Add(phase);overviewDetails.Controls.Add(hold);overviewDetails.Controls.Add(new Label{Text="RECENT MATCHES",ForeColor=Muted,Dock=DockStyle.Fill,Font=new Font("Segoe UI",9,FontStyle.Bold)});overviewDetails.Controls.Add(recent);overviewDetails.Controls.Add(replay);overviewRoot.Controls.Add(overviewDetails,0,3);
-        var matchPage=Page("Matches","Every match, with replay corrections",out var mr);mr.Controls.Add(matches,0,3);
+        var matchPage=Page("Matches","Every match, with replay corrections",out var mr);mr.RowStyles[2].Height=0;mr.Controls.Add(matches,0,3);
         var rewardPage=Page("Rewards","Saved discoveries across your games",out var rr);rr.Controls.Add(Row(Button("Review saved rewards",()=>actions.ReviewRewards())),0,2);rr.Controls.Add(rewards,0,3);
         Page("Linked counts","Pair with friends using a private invite code",out var lr);
         var linkContent=Stack();lr.Controls.Add(linkContent,0,3);lr.RowStyles[2].Height=0;
@@ -112,7 +113,9 @@ public sealed class Dashboard : Form
     static Label Value()=>new(){Dock=DockStyle.Fill,Text="—",Font=new Font("Segoe UI",25,FontStyle.Bold),ForeColor=Accent,AutoEllipsis=true};
     static Label Note(string text="")=>new(){Text=text,AutoSize=false,Height=Math.Max(42,22*text.Split('\n').Length+12),Width=720,Dock=DockStyle.Top,ForeColor=Muted,AutoEllipsis=true,Margin=new Padding(0,8,0,8)};
     static Control Card(string title,Label value){var panel=new TableLayoutPanel{Dock=DockStyle.Fill,BackColor=Color.White,Padding=new Padding(15),RowCount=2,Margin=new Padding(0,8,12,16)};panel.RowStyles.Add(new(SizeType.Absolute,28));panel.RowStyles.Add(new(SizeType.Percent,100));panel.Controls.Add(new Label{Text=title,Dock=DockStyle.Fill,ForeColor=Muted,Font=new Font("Segoe UI",8,FontStyle.Bold)});panel.Controls.Add(value);return panel;}
-    static FlowLayoutPanel Stack()=>new(){Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,WrapContents=false,Padding=new Padding(0,2,12,12)};
+    static FlowLayoutPanel Stack(){var panel=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,WrapContents=false,Padding=new Padding(0,2,12,12)};
+        panel.SizeChanged+=(_,_)=>{int width=Math.Max(300,panel.ClientSize.Width-30);foreach(Control child in panel.Controls){if(child is Label label){label.Width=width;label.Height=Math.Max(42,TextRenderer.MeasureText(label.Text,label.Font,new Size(width,0),TextFormatFlags.WordBreak).Height+16);}else if(child is FlowLayoutPanel row)row.MaximumSize=new Size(width,0);else if(child is Panel)child.Width=width;}};return panel;}
+
     static FlowLayoutPanel Row(params Control[] controls){var row=new FlowLayoutPanel{AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,WrapContents=true,Margin=new Padding(0,6,0,6),MaximumSize=new Size(760,0)};row.Controls.AddRange(controls);return row;}
     static Control Field(string caption,Control input){var p=new FlowLayoutPanel{FlowDirection=FlowDirection.TopDown,WrapContents=false,AutoSize=true,Margin=new Padding(0,0,12,0)};p.Controls.Add(new Label{Text=caption,AutoSize=true,ForeColor=Muted,Margin=new Padding(0,0,0,5)});input.Margin=Padding.Empty;p.Controls.Add(input);return p;}
     static Button Button(string text,Action action){var b=new Button{Text=text,AutoSize=true,Height=36,MinimumSize=new Size(85,35),FlatStyle=FlatStyle.Flat,BackColor=Color.White,ForeColor=Ink,Padding=new Padding(9,4,9,4),Margin=new Padding(0,6,10,6)};b.FlatAppearance.BorderColor=Color.FromArgb(211,219,232);b.Click+=(_,_)=>{try{action();}catch(Exception e){MessageBox.Show(e.Message,"Treasure Ledger");}};return b;}
