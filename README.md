@@ -2,11 +2,11 @@
 
 A missing old replay can no longer keep the current-game number stuck. Existing saved display anchors are repaired on startup without modifying chest history. The last game stays visible in the lobby; the first chest in the next game switches directly to the live count. Late replay corrections continue updating prior match history and lifetime totals. They do not block or replace an active game's display.
 
-# Treasure Ledger 0.5.3
+# Treasure Ledger 0.5.4
 
-[Download the latest standalone Windows EXE](https://github.com/ashclient/pleasenetanyahugrantmethisfortnitepiratetoken/releases/download/v0.5.3-build.43549170124/TreasureLedger.exe).
+[Download the latest standalone Windows EXE](https://github.com/ashclient/pleasenetanyahugrantmethisfortnitepiratetoken/releases/download/v0.5.4-build.43554847222/TreasureLedger.exe).
 
-Exit any old running copy from its tray menu before opening the update. Existing personal history and preferences are retained. All linked friends should update and use the same group's invite code. This build includes overlay show/hide and position reset controls, total match counts, broader live English/Japanese chest coverage and rare-chest OCR improvements. Verified with 159 state/recognition checks, 10 recorded English sequences, Japanese screenshot regressions, scaled English masks and four-member live sync tests. Detection remains based on visible notifications; use Save diagnosis after any remaining miss to capture evidence for investigation.
+Exit any old running copy from its tray menu before opening the update. Existing personal history and preferences are retained. All linked friends should update and use the same group's invite code. This build includes overlay show/hide and position reset controls, total match counts, broader live English/Japanese chest coverage and rare-chest OCR improvements. Verified with 163 state/recognition checks, 10 recorded English sequences, Japanese screenshot regressions, scaled English masks and four-member live sync tests. Detection remains based on visible notifications; use Save diagnosis after any remaining miss to capture evidence for investigation.
 
 ## Overlay controls and live detection (0.5.3)
 
@@ -22,7 +22,7 @@ The direct Cloudflare service was verified with four members and simultaneous up
 
 ## Cloudflare deployment through GitHub
 
-Sync runs directly on a standalone Cloudflare Worker with no web pages. The previous ChatGPT website remains owner-private. **Use [the Cloudflare-connected EXE](https://github.com/ashclient/pleasenetanyahugrantmethisfortnitepiratetoken/releases/download/v0.5.3-build.43549170124/TreasureLedger.exe); build.26 and earlier still point to the old service.** Personal tracking/history remain local. No Cloudflare or ChatGPT login is needed in the app. Create/join a group in Linked counts and clients sync automatically.
+Sync runs directly on a standalone Cloudflare Worker with no web pages. The previous ChatGPT website remains owner-private. **Use [the Cloudflare-connected EXE](https://github.com/ashclient/pleasenetanyahugrantmethisfortnitepiratetoken/releases/download/v0.5.4-build.43554847222/TreasureLedger.exe); build.26 and earlier still point to the old service.** Personal tracking/history remain local. No Cloudflare or ChatGPT login is needed in the app. Create/join a group in Linked counts and clients sync automatically.
 
 The repository's **Deploy Cloudflare sync and build EXE** action handles D1 provisioning, deployment, two-client checks, endpoint configuration and the finished Windows release. This repository is already configured. For a new deployment, the owner adds `CLOUDFLARE_API_TOKEN` as a GitHub Actions repository secret (the account ID is detected automatically when the token identifies one account). End users still download just the EXE. See [deployment setup](sync-service/README.md). No credentials go in source, chat or the EXE.
 
