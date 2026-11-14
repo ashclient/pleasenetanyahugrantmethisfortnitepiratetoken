@@ -106,6 +106,12 @@ static class Program
                 List<Observation> FocusedBatch(DateTimeOffset t)=>[new("OCR sample",0,0,"rare-pass",t),..ordinaryLines.Select(x=>x with{CapturedAt=t})];
                 fusionTest.Update(FocusedBatch(fusionAt),fusionAt,false,0);
                 if(fusionTest.Update(FocusedBatch(fusionAt.AddSeconds(.3)),fusionAt.AddSeconds(.3),false,0)!=1||fusionTest.Update([],fusionAt.AddSeconds(.4),true,1)!=0)throw new Exception("Packaged ordinary-chest live OCR fallback/deduplication failed");
+                foreach(var label in new[]{"RARE CHEST SEARCHED","SEARCHED A RARE CHEST"}){
+                    using var rareLong=new Bitmap(1600,900);
+                    using(var g=Graphics.FromImage(rareLong)){g.Clear(Color.FromArgb(20,40,60));using var font=new Font("Segoe UI",22,FontStyle.Bold);g.DrawString("+900 XP",font,Brushes.LightCyan,710,430);g.DrawString(label,font,Brushes.LightCyan,710,475);}
+                    var longLines=Task.Run(()=>capture.ReadChestLabels(rareLong)).GetAwaiter().GetResult();
+                    if(!RareChestBackup.ReadEvidence(longLines,out _,out _,true))throw new Exception("Wide/lower rare-chest notification OCR failed: "+string.Join(" | ",longLines.Select(x=>x.Text)));
+                }
                 var visibilityRoundTrip=JsonSerializer.Deserialize<Preferences>(JsonSerializer.Serialize(new Preferences{OverlayVisible=false}));
                 if(visibilityRoundTrip!.OverlayVisible)throw new Exception("Hidden-overlay preference was not persisted");
                 using var japaneseSample = new Bitmap(1600, 900);
@@ -140,7 +146,7 @@ static class Program
             catch (Exception e) { File.WriteAllText("smoke-test.txt", e.ToString()); return 1; }
         }
         using var mutex = new Mutex(true, "TreasureLedger.SingleInstance", out bool created);
-        if (!created) { MessageBox.Show("Treasure Ledger is already running. Open it from the system tray."); return 0; }
+        if (!created) { MessageBox.Show("Treasure Ledger is already running. If you downloaded an update, choose Exit in the old app’s system tray menu, then open this file again. Otherwise, double-click its tray icon for settings."); return 0; }
         try { Application.Run(new LedgerApplication()); return 0; }
         catch (Exception e) { MessageBox.Show(e.Message, "Treasure Ledger", MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
     }

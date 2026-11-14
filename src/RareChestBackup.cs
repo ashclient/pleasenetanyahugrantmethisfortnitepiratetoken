@@ -20,14 +20,15 @@ public sealed class RareChestBackup
         foreach(var row in rows)
         {
             string label=Clean(row.Text);string compact=Regex.Replace(label,@"\s+","");
-            string names=includeRegular?@"^(RARECHEST|CHEST(SEARCHED)?|レア(な)?(宝箱|チェスト)|宝箱)(X[2-9])?$":@"^(RARECHEST|レア(な)?(宝箱|チェスト))(X[2-9])?$";
+            string rare=@"(RARECHEST(SEARCHED)?|SEARCHED(A)?RARECHEST|レア(な)?(宝箱|チェスト)(を(開けた|開いた|開けました|開封))?)";
+            string names="^("+rare+(includeRegular?@"|CHEST(SEARCHED)?|SEARCHED(A)?CHEST|宝箱(を(開けた|開いた|開けました|開封))?":"")+@")(?<mult>X[2-9])?$";
             if(!Regex.IsMatch(compact,names)||compact.Length>48)continue;
             var number=Regex.Match(compact,@"X([2-9])");
             foreach(var near in rows.Where(r=>Math.Abs(r.X-row.X)<.30 && Math.Abs(r.Y-row.Y)<.15))
             {
-                var amount=Regex.Match(Clean(near.Text),@"\+?\s*([0-9][0-9 ,.]*)\s*X\s*P(?![A-Z])");
+                var amount=Regex.Match(Clean(near.Text),@"\+?\s*([0-9O][0-9O ,.]*)\s*X\s*P(?![A-Z])");
                 if(!amount.Success) continue;
-                string digits=Regex.Replace(amount.Groups[1].Value,@"\D","");
+                string digits=Regex.Replace(amount.Groups[1].Value.Replace('O','0'),@"\D","");
                 if(!long.TryParse(digits,out var value) || value<=0) continue;
                 multiplier=number.Success?int.Parse(number.Groups[1].Value):1; xp=digits;return true;
             }

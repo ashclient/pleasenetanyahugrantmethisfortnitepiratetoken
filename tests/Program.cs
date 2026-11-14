@@ -322,6 +322,12 @@ var noXpFusion=new LiveChestFusion();noXpFusion.Update(Rare(0,"CHEST",null),time
 Check(noXpFusion.Update(Rare(.3,"CHEST",null),time.AddSeconds(.3),false,0)==0,"Ordinary chest label without XP cannot count");
 var staleFusion=new LiveChestFusion();staleFusion.Update(Rare(0,"CHEST"),time,false,0);
 Check(staleFusion.Update(Rare(.3,"CHEST"),time.AddSeconds(10),false,0)==0,"Old asynchronous OCR cannot add a live chest");
+
+foreach(string label in new[]{"RARE CHEST SEARCHED","SEARCHED A RARE CHEST","レアな宝箱を開けた","レア宝箱を開いた"}){
+ var rareLive=new LiveChestFusion();rareLive.Update(Rare(0,label,"+9OO XP"),time,false,0);
+ Check(rareLive.Update(Rare(.3,label,"+9OO XP"),time.AddSeconds(.3),false,0)==1,"Rare chest variant and zero/O OCR recovery count live: "+label);
+ Check(rareLive.Update([],time.AddSeconds(.4),true,1)==0,"Rare variant late visual detection stays deduplicated: "+label);
+}
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");
 
 sealed class SyncTestHandler(Func<System.Net.Http.HttpRequestMessage,System.Net.Http.HttpResponseMessage> respond):System.Net.Http.HttpMessageHandler

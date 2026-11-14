@@ -152,8 +152,12 @@ public sealed class GameCapture
     }
     internal async Task<List<Observation>> ReadChestLabels(Bitmap source)
     {
-        var region=new Rectangle((int)(source.Width*.53),(int)(source.Height*.20),(int)(source.Width*.33),(int)(source.Height*.30));
-        return (await ReadRegion(source,region,true,1300,chestEngine)).Select(x=>x with {Source="rare-ocr"}).ToList();
+        // Rare/long labels can move left or lower as the XP stack expands.
+        var region=new Rectangle((int)(source.Width*.42),(int)(source.Height*.17),(int)(source.Width*.48),(int)(source.Height*.43));
+        var rows=(await ReadRegion(source,region,true,1800,chestEngine)).Select(x=>x with {Source="rare-ocr"}).ToList();
+        if(!RareChestBackup.ReadEvidence(rows,out _,out _,true))
+            rows=(await ReadRegion(source,region,false,1800,chestEngine)).Select(x=>x with {Source="rare-ocr"}).ToList();
+        return rows;
     }
     void EnqueueSample(string lane, DateTimeOffset at, List<Observation> items, string marker)
     {

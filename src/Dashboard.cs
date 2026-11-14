@@ -72,7 +72,7 @@ public sealed class Dashboard : Form
             var b=new Button{Text=title,TextAlign=ContentAlignment.MiddleLeft,Size=new Size(154,43),FlatStyle=FlatStyle.Flat,ForeColor=Color.FromArgb(192,204,225),Margin=new Padding(0,3,0,3),Padding=new Padding(12,0,0,0)};b.FlatAppearance.BorderSize=0;
             b.Click+=(_,_)=>ShowPage(title);navigation[title]=b;nav.Controls.Add(b);
         }
-        var bottom=new Label{Dock=DockStyle.Bottom,Height=56,ForeColor=Color.FromArgb(153,171,200),Text="Alt+T  ·  overlay lock\nv0.5.2 · Cloudflare sync",Font=new Font("Segoe UI",9)};sidebar.Controls.Add(bottom);
+        var bottom=new Label{Dock=DockStyle.Bottom,Height=56,ForeColor=Color.FromArgb(153,171,200),Text="Alt+T  ·  overlay lock\nv0.5.3 · Cloudflare sync",Font=new Font("Segoe UI",9)};sidebar.Controls.Add(bottom);
         var overview=Page("Overview","Your treasure, at a glance",out var overviewRoot);
         overviewRoot.RowStyles[2].Height=150;
         var cards=new TableLayoutPanel{Dock=DockStyle.Top,Height=138,ColumnCount=3,Margin=new Padding(0,12,0,20)};
