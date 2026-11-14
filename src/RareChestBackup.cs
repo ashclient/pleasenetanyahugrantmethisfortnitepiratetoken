@@ -21,9 +21,9 @@ public sealed class RareChestBackup
         {
             string label=Clean(row.Text);string compact=Regex.Replace(label,@"\s+","");
             string rare=@"(RARECHEST(SEARCHED)?|SEARCHED(A)?RARECHEST|レア(な)?(宝箱|チェスト)(を(開けた|開いた|開けました|開封))?)";
-            string names="^("+rare+(includeRegular?@"|CHEST(SEARCHED)?|SEARCHED(A)?CHEST|宝箱(を(開けた|開いた|開けました|開封))?":"")+@")(?<mult>X[2-9])?$";
+            string names="^("+rare+(includeRegular?@"|CHEST(SEARCHED)?|SEARCHED(A)?CHEST|宝箱(を(開けた|開いた|開けました|開封))?":"")+@")(?<mult>X[1-9][0-9]{0,2})?$";
             if(!Regex.IsMatch(compact,names)||compact.Length>48)continue;
-            var number=Regex.Match(compact,@"X([2-9])");
+            var number=Regex.Match(compact,@"X([1-9][0-9]{0,2})$");
             foreach(var near in rows.Where(r=>Math.Abs(r.X-row.X)<.30 && Math.Abs(r.Y-row.Y)<.15))
             {
                 var amount=Regex.Match(Clean(near.Text),@"\+?\s*([0-9O][0-9O ,.]*)\s*X\s*P(?![A-Z])");

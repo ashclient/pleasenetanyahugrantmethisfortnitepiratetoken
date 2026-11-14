@@ -36,7 +36,7 @@ public sealed class LiveChestFusion
         if(candidate!=key){candidate=key;candidateFrames=1;candidateAt=at;return acceptedVisual;}
         if(++candidateFrames<2||at-candidateAt!.Value<TimeSpan.FromMilliseconds(150))return acceptedVisual;
         if(steps==0){steps=1;acceptedMultiplier=multiplier;acceptedXp=xp;}
-        else if(multiplier>acceptedMultiplier&&xp!=acceptedXp){steps++;acceptedMultiplier=multiplier;acceptedXp=xp;}
+        else if(multiplier>acceptedMultiplier&&xp!=acceptedXp){steps+=multiplier-acceptedMultiplier;acceptedMultiplier=multiplier;acceptedXp=xp;}
         int visuals=Math.Max(baseline,visualTimes.Count(t=>t>=firstSeen.Value.AddMilliseconds(-500)));
         int represented=visuals+Math.Max(0,fallbacks-absorbed);
         int extra=Math.Max(0,steps-represented);fallbacks+=extra;
