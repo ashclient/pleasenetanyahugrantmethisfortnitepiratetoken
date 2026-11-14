@@ -25,7 +25,7 @@ public sealed class LinkConfiguration
 }
 public sealed class LinkClient
 {
-    public const string ServiceUrl="https://treasure-ledger-link.mlitw002.chatgpt.site/api/v1/";
+    public const string ServiceUrl="https://treasure-ledger-sync.ashhlogg.workers.dev/api/v1/";
     static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     readonly string path;readonly HttpClient http;readonly Uri endpoint;readonly SemaphoreSlim gate=new(1,1);
     DateTimeOffset lastRequest;bool blocked;
@@ -40,7 +40,7 @@ public sealed class LinkClient
         try { Config=File.Exists(path)?JsonSerializer.Deserialize<LinkConfiguration>(File.ReadAllText(path),Json)??new():new(); }
         catch { File.Copy(path,path+".damaged-"+DateTime.UtcNow.Ticks,true);Config=new();Status="Pairing settings could not be read; personal history is safe. Rejoin and ask the creator to remove the old member."; }
         this.endpoint=endpoint??new Uri(ServiceUrl);this.http=http??new HttpClient(new HttpClientHandler{AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(20)};
-        this.http.DefaultRequestHeaders.UserAgent.ParseAdd("TreasureLedger/0.5.0");
+        this.http.DefaultRequestHeaders.UserAgent.ParseAdd("TreasureLedger/0.5.2");
         Save();if(IsLinked)Status="Connecting · cached totals retained";
     }
     void Save(){string tmp=path+".tmp";File.WriteAllText(tmp,JsonSerializer.Serialize(Config,Json));File.Move(tmp,path,true);}
@@ -53,9 +53,13 @@ public sealed class LinkClient
         using var response=await http.SendAsync(request,token);var text=await response.Content.ReadAsStringAsync(token);
         if(!response.IsSuccessStatusCode)
         {
-            string message="Sync request failed";try{message=JsonDocument.Parse(text).RootElement.GetProperty("error").GetString()??message;}catch{}
-            if(response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.NotFound)blocked=true;
-            throw new InvalidOperationException(message);
+            string? detail=null;
+            try { using var document=JsonDocument.Parse(text);if(document.RootElement.TryGetProperty("error",out var error)&&error.ValueKind==JsonValueKind.String)detail=error.GetString(); }catch(JsonException){}
+            // An HTML rejection from a proxy/retired host is not proof that membership was revoked.
+            if(route.EndsWith("/sync",StringComparison.Ordinal)&&detail is not null&&(response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.NotFound))blocked=true;
+            string reason=detail is null ? "Server did not return a sync response. Check that everyone has the latest app." : detail.Length<=240?detail:detail[..240];
+            if(endpoint.Host.EndsWith(".chatgpt.site",StringComparison.OrdinalIgnoreCase))reason="Outdated sync server. Install the latest Treasure Ledger on every PC.";
+            throw new InvalidOperationException($"{reason} (HTTP {(int)response.StatusCode}, {endpoint.Host})");
         }
         lastRequest=DateTimeOffset.UtcNow;
         return JsonSerializer.Deserialize<LinkedState>(text,Json)??throw new InvalidDataException("Invalid sync response");
@@ -91,7 +95,8 @@ public sealed class LinkClient
         try{
             var body=new{memberId=Config.MemberId,name=Config.Name,snapshot=Snapshot(total)};Save();
             Accept(await Request($"groups/{Config.GroupId}/sync",body,Config.Proof,token));
-        }catch(Exception e)when(e is not OperationCanceledException){Status=blocked?e.Message:"Offline · last synced totals retained";}
+        }catch(OperationCanceledException)when(token.IsCancellationRequested){throw;}
+        catch(Exception e){Status=blocked?e.Message:$"Sync paused · {e.Message} · cached totals retained";}
         finally{gate.Release();}
     }
     public void Rename(string name){if(string.IsNullOrWhiteSpace(name)||name.Trim().Length>32)throw new ArgumentException("Use a name from 1 to 32 characters");Config.Name=name.Trim();Save();}

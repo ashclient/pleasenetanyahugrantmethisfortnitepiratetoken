@@ -19,7 +19,7 @@ public sealed class GameCapture
     private OcrEngine engine;
     private readonly OcrEngine matchEngine;
     private readonly OcrEngine chestEngine;
-    private readonly RareChestBackup rareBackup = new();
+    private readonly LiveChestFusion rareBackup = new();
     private volatile bool chestBusy;
     private DateTimeOffset nextChest;
     private string languageCode;
@@ -35,7 +35,7 @@ public sealed class GameCapture
     private int metadataRound;
     public string VisionSummary => vision.Summary + " · " + rareBackup.Summary;
     public double VisionMilliseconds => vision.LastMilliseconds;
-    public object Diagnostic { get { lock (metadataLock) return new { engine = "focused-popup-sequence-v4.2", rareBackup=rareBackup.Summary, chestError=LastChestError, vision = vision.Summary, frames = vision.Trace, banners = vision.BannerTrace, context = vision.ContextTrace, samples = ocrTrace.ToArray(), matchError = LastMatchError }; } }
+    public object Diagnostic { get { lock (metadataLock) return new { engine = "focused-popup-sequence-v5.2", rareBackup=rareBackup.Summary, chestError=LastChestError, vision = vision.Summary, frames = vision.Trace, banners = vision.BannerTrace, context = vision.ContextTrace, samples = ocrTrace.ToArray(), matchError = LastMatchError }; } }
     public GameCapture(string language) { engine = CreateEngine(language); matchEngine = CreateEngine(language); chestEngine = CreateEngine(language); languageCode = language; }
     public string RecognitionNote => languageCode == "ja-JP" && !engine.RecognizerLanguage.LanguageTag.StartsWith("ja", StringComparison.OrdinalIgnoreCase)
         ? "Japanese OCR is unavailable; chest/gizmo visual detection is active. Automatic match resets and other Japanese rewards need Japanese OCR." : "";
@@ -80,8 +80,9 @@ public sealed class GameCapture
     {
         var result = vision.Process(source, at, languageCode);
         lock (metadataLock) while (metadata.Count > 0) result.Add(metadata.Dequeue());
-        int backupEvents=rareBackup.Update(result,at,vision.PopupCounted,result.Count(x=>x.Source=="event-chest"));
-        for(int n=0;n<backupEvents;n++) result.Add(new Observation("Rare chest · confirmed text + XP backup",.7,.32,"event-chest"));
+        int accepted=rareBackup.Update(result,at,vision.PopupCounted,result.Count(x=>x.Source=="event-chest"));
+        result.RemoveAll(x=>x.Source=="event-chest");
+        for(int n=0;n<accepted;n++)result.Add(new Observation("Chest opening · live visual / label + XP confirmation",.7,.32,"event-chest"));
         if(!chestBusy && at>=nextChest)
         {
             chestBusy=true;nextChest=at.AddMilliseconds(220);var copy=new Bitmap(source);

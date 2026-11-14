@@ -23,7 +23,7 @@ internal static class LiveRegression
         using var gzip = new GZipStream(compressed, CompressionMode.Decompress);
         using var reader = new BinaryReader(gzip);
         if (System.Text.Encoding.ASCII.GetString(reader.ReadBytes(4)) != "TLT1") throw new InvalidDataException("Invalid live trace fixture.");
-        int count = reader.ReadInt32(); int failures = 0;
+        int count = reader.ReadInt32(); int failures = 0;float[]? englishSample=null;
         for (int c = 0; c < count; c++)
         {
             string name = System.Text.Encoding.UTF8.GetString(reader.ReadBytes(reader.ReadInt32()));
@@ -36,7 +36,7 @@ internal static class LiveRegression
                 double t = reader.ReadDouble(); byte[] packed = reader.ReadBytes((w * h + 7) / 8);
                 if (packed.Length != (w * h + 7) / 8) throw new InvalidDataException("Truncated live fixture.");
                 float[] mask = new float[w * h]; for (int i = 0; i < mask.Length; i++) mask[i] = (packed[i / 8] & (1 << (7 - i % 8))) != 0 ? 1 : 0;
-                int added = vision.ProcessMask(mask, t, "en"); actual += added; if (added > 0) eventTimes.Add(t);
+                int added = vision.ProcessMask(mask, t, "en"); if(added>0&&englishSample is null)englishSample=(float[])mask.Clone();actual += added; if (added > 0) eventTimes.Add(t);
                 timings.Add(vision.LastMilliseconds);
                 if (name == "replays_stack_x2_x3") debug.Add($"{t:F2} added={added} {vision.Debug}");
             }
@@ -51,6 +51,16 @@ internal static class LiveRegression
             if (debug.Count > 0) File.WriteAllLines("stack-debug.txt", debug);
             report.Add($"{(passed ? "PASS" : "FAIL")} {name}: {actual}/{expected}, matched {matched}, false/duplicate {falseEvents}; avg {timings.Average():F1} ms; p95 {timings.OrderBy(x => x).ElementAt((int)(timings.Count * .95)):F1} ms; events {string.Join(",", eventTimes.Select(t => t.ToString("F2")))}");
             File.WriteAllLines("live-regression.txt", report);
+        }
+        if(englishSample is null)throw new Exception("No English notification sample available");
+        foreach(double scale in new[]{.8,.9,1.1,1.25}){
+            using var original=FocusedVision.Mat(englishSample,FocusedVision.Width,FocusedVision.Height);using var scaled=new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.Resize(original,scaled,new OpenCvSharp.Size((int)Math.Round(original.Cols*scale),(int)Math.Round(original.Rows*scale)),0,0,OpenCvSharp.InterpolationFlags.Area);
+            var pixels=new float[scaled.Rows*scaled.Cols];System.Runtime.InteropServices.Marshal.Copy(scaled.Data,pixels,0,pixels.Length);
+            var centered=new float[FocusedVision.Width*FocusedVision.Height];int dx=(FocusedVision.Width-scaled.Cols)/2,dy=(FocusedVision.Height-scaled.Rows)/2;
+            for(int y=0;y<scaled.Rows;y++)for(int x=0;x<scaled.Cols;x++){int xx=x+dx,yy=y+dy;if(xx>=0&&xx<FocusedVision.Width&&yy>=0&&yy<FocusedVision.Height)centered[yy*FocusedVision.Width+xx]=pixels[y*scaled.Cols+x];}
+            using var scaledVision=new FocusedVision();int total=0;for(int f=0;f<12;f++)total+=scaledVision.ProcessMask(centered,f*.067,"en");
+            Check(total==1,$"English notification mask at {scale:P0} HUD text scale: {total} opening(s), {scaledVision.Summary}");
         }
         // Exercise the actual bitmap normalization path using the supplied Japanese XP image.
         var reference = JapaneseHudDetector.LoadReference("chest");

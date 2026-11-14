@@ -13,7 +13,7 @@ internal sealed class FocusedVision : IDisposable
 {
     public const int Width = 360, Height = 202, Left = 716, Top = 158;
     sealed class Spec { public string id { get; set; } = ""; public string language { get; set; } = ""; public string[] rows { get; set; } = []; }
-    sealed record Pattern(string Language, int Width, int Height, Cv.Mat Blurred);
+    sealed record Pattern(string Language, int Width, int Height, Cv.Mat Blurred, double Threshold);
     readonly List<Pattern> patterns = [];
     readonly PopupSequence sequence = new();
     Pattern? lockedPattern;
@@ -38,12 +38,12 @@ internal sealed class FocusedVision : IDisposable
         foreach (var spec in JsonSerializer.Deserialize<List<Spec>>(file)!)
         {
             using var raw = Mat(spec.rows.SelectMany(r => r.Select(c => c == '1' ? 1f : 0f)).ToArray(), spec.rows[0].Length, spec.rows.Length);
-            foreach (double scale in spec.language == "en" ? new[] { 1d } : new[] { 1d, 1.15, 1.30 })
+            foreach (double scale in spec.language == "en" ? new[] { 1d, .80, .90, 1.10, 1.25 } : new[] { 1d, .85, 1.15, 1.30 })
             {
                 using var resized = new Cv.Mat(); Cv.Cv2.Resize(raw, resized, new Cv.Size(Math.Max(4, (int)Math.Round(raw.Cols * scale)), Math.Max(4, (int)Math.Round(raw.Rows * scale))), 0, 0, Cv.InterpolationFlags.Area);
                 using var pad = new Cv.Mat(); Cv.Cv2.CopyMakeBorder(resized, pad, 2, 2, 2, 2, Cv.BorderTypes.Constant, Cv.Scalar.All(0));
                 var blur = new Cv.Mat(); Cv.Cv2.GaussianBlur(pad, blur, new Cv.Size(0, 0), .6, .6, Cv.BorderTypes.Reflect);
-                patterns.Add(new Pattern(spec.language, resized.Cols, resized.Rows, blur));
+                patterns.Add(new Pattern(spec.language, resized.Cols, resized.Rows, blur, spec.language == "ja" ? .84 : raw.Cols == 22 ? .85 : .75));
             }
         }
     }
@@ -133,13 +133,13 @@ internal sealed class FocusedVision : IDisposable
         List<VisionLine> lines = []; Pattern? best = lockedPattern;
         if (values.Sum() >= 20)
         {
-            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, moments, lockedPattern, language == "ja" ? .84 : lockedPattern.Width == 22 ? .85 : .75);
+            if (sequence.Active && lockedPattern is not null) lines = FindLines(mask, blurred, moments, lockedPattern, lockedPattern.Threshold);
             else
             {
                 double score = 0;
                 foreach (var pattern in patterns.Where(p => p.Language == language))
                 {
-                    var candidates = FindLines(mask, blurred, moments, pattern, language == "ja" ? .84 : pattern.Width == 22 ? .85 : .75);
+                    var candidates = FindLines(mask, blurred, moments, pattern, pattern.Threshold);
                     double candidateScore = candidates.Select(c => c.Score).DefaultIfEmpty(0).Max();
                     if (candidateScore > score) { score = candidateScore; lines = candidates; best = pattern; }
                 }

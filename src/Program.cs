@@ -96,6 +96,18 @@ static class Program
                 {g.Clear(Color.FromArgb(20,40,60));using var font=new Font("Segoe UI",28,FontStyle.Bold);g.DrawString("+900 XP",font,Brushes.White,1000,220);g.DrawString("RARE CHEST",font,Brushes.LightCyan,1000,270);}
                 var rareLines=Task.Run(()=>capture.ReadChestLabels(rareSample)).GetAwaiter().GetResult();
                 if(!RareChestBackup.ReadEvidence(rareLines,out _,out _)) throw new Exception("Rare-chest focused OCR failed: "+string.Join(" | ",rareLines.Select(x=>x.Text)));
+                using var ordinarySample=new Bitmap(1600,900);
+                using(var g=Graphics.FromImage(ordinarySample)){
+                    g.Clear(Color.FromArgb(20,40,60));using var font=new Font("Segoe UI",28,FontStyle.Bold);
+                    g.DrawString("+100 XP",font,Brushes.White,1000,220);g.DrawString("CHEST",font,Brushes.White,1000,270);
+                }
+                var ordinaryLines=Task.Run(()=>capture.ReadChestLabels(ordinarySample)).GetAwaiter().GetResult();
+                var fusionTest=new LiveChestFusion();var fusionAt=DateTimeOffset.UtcNow;
+                List<Observation> FocusedBatch(DateTimeOffset t)=>[new("OCR sample",0,0,"rare-pass",t),..ordinaryLines.Select(x=>x with{CapturedAt=t})];
+                fusionTest.Update(FocusedBatch(fusionAt),fusionAt,false,0);
+                if(fusionTest.Update(FocusedBatch(fusionAt.AddSeconds(.3)),fusionAt.AddSeconds(.3),false,0)!=1||fusionTest.Update([],fusionAt.AddSeconds(.4),true,1)!=0)throw new Exception("Packaged ordinary-chest live OCR fallback/deduplication failed");
+                var visibilityRoundTrip=JsonSerializer.Deserialize<Preferences>(JsonSerializer.Serialize(new Preferences{OverlayVisible=false}));
+                if(visibilityRoundTrip!.OverlayVisible)throw new Exception("Hidden-overlay preference was not persisted");
                 using var japaneseSample = new Bitmap(1600, 900);
                 using (var g = Graphics.FromImage(japaneseSample))
                 {
@@ -137,6 +149,7 @@ static class Program
 public sealed class Preferences
 {
     public bool ReplayChecking { get; set; } = true;
+    public bool OverlayVisible {get;set;}=true;
     public string? ReplayFolder { get; set; }
     public string Language { get; set; } = "en-US";
     public int X { get; set; } = 24;
@@ -155,6 +168,7 @@ public sealed class LedgerApplication : ApplicationContext
     readonly Preferences preferences;
     readonly OverlayWindow overlay = new();
     readonly NotifyIcon tray;
+    readonly ToolStripMenuItem overlayToggle;
     readonly InteractionHotkey interactionHotkey;
     Bitmap? latestFrame;
     DateTimeOffset? capturedAt;
@@ -211,7 +225,9 @@ public sealed class LedgerApplication : ApplicationContext
             Refresh();
         };
         menu.Items.Add(new ToolStripMenuItem("Alt+T · unlock / lock overlay") { Enabled = false });
-        menu.Items.Add("Show overlay", null, (_, _) => overlay.Show());
+        overlayToggle=new ToolStripMenuItem("Show overlay"){Checked=preferences.OverlayVisible,CheckOnClick=true};
+        overlayToggle.CheckedChanged+=(_,_)=>SetOverlayVisible(overlayToggle.Checked);menu.Items.Add(overlayToggle);
+        menu.Items.Add("Reset overlay position",null,(_,_)=>ResetOverlayPosition());
         menu.Items.Add("Third-party notices", null, (_, _) =>
         {
             var assembly = System.Reflection.Assembly.GetExecutingAssembly(); var parts = new List<string>();
@@ -226,12 +242,12 @@ public sealed class LedgerApplication : ApplicationContext
         overlay.ContextMenuStrip = menu;
         overlay.DetailsRequested += (_, _) => OpenDashboard();
         overlay.Move += (_, _) => { if (overlay.Visible) { preferences.X = overlay.Left; preferences.Y = overlay.Top; } };
-        overlay.FormClosing += (_, e) => { if (!exiting) { e.Cancel = true; overlay.Hide(); } };
+        overlay.FormClosing += (_, e) => { if (!exiting) { e.Cancel = true; SetOverlayVisible(false); } };
         var requested = new Rectangle(preferences.X, preferences.Y, overlay.Width, overlay.Height);
         var area = Screen.AllScreens.FirstOrDefault(s => s.WorkingArea.IntersectsWith(requested))?.WorkingArea ?? Screen.PrimaryScreen!.WorkingArea;
         overlay.Location = new Point(Math.Clamp(preferences.X, area.Left, Math.Max(area.Left, area.Right - overlay.Width)), Math.Clamp(preferences.Y, area.Top, Math.Max(area.Top, area.Bottom - overlay.Height)));
         // Pixel alpha comes from the overlay renderer; do not set Form.Opacity.
-        overlay.Show();
+        if(preferences.OverlayVisible)overlay.Show();
         overlay.SetClickThrough(preferences.ClickThrough);
         TryCreateCapture();
         Refresh();
@@ -299,6 +315,16 @@ public sealed class LedgerApplication : ApplicationContext
         catch (Exception e) { status = "Recognition error: " + e.Message; }
         finally { busy = false; if (!exiting) { if (capture is null) TryCreateCapture(); Refresh(); } }
     }
+    void SetOverlayVisible(bool visible){
+        preferences.OverlayVisible=visible;
+        if(overlayToggle.Checked!=visible)overlayToggle.Checked=visible;
+        if(visible)overlay.Show();else overlay.Hide();SavePreferences();Refresh();
+    }
+    void ResetOverlayPosition(){
+        var area=Screen.PrimaryScreen!.WorkingArea;
+        overlay.Location=new Point(area.Left+Math.Min(24,Math.Max(0,area.Width-overlay.Width)),area.Top+Math.Min(70,Math.Max(0,area.Height-overlay.Height)));
+        preferences.X=overlay.Left;preferences.Y=overlay.Top;SavePreferences();Refresh();
+    }
     SharedTotals SharedSnapshot() { var totals=ledger.Totals;return new(totals.GetValueOrDefault("Chest"),totals.Where(x=>x.Key!="Chest").ToDictionary(x=>x.Key,x=>x.Value)); }
     async Task SyncLinks() { try{await links.Sync(SharedSnapshot(),replayCancellation.Token);if(!exiting)Refresh();}catch(OperationCanceledException)when(exiting){} }
     void SetReplayChecking(bool enabled) { preferences.ReplayChecking=enabled;tracker.SetReplayWaiting(enabled);store.Save(ledger);SavePreferences();Refresh(); }
@@ -316,7 +342,7 @@ public sealed class LedgerApplication : ApplicationContext
         if (dashboard is null || dashboard.IsDisposed)
         {
             dashboard = new Dashboard(new DashboardActions {
-                SetLanguage=SetLanguage, Retry=()=>{TryCreateCapture();Refresh();}, SaveDiagnosis=SaveDiagnosis, ReviewRewards=OpenRewardReview,
+                OverlayVisible=SetOverlayVisible,ResetOverlay=ResetOverlayPosition,SetLanguage=SetLanguage, Retry=()=>{TryCreateCapture();Refresh();}, SaveDiagnosis=SaveDiagnosis, ReviewRewards=OpenRewardReview,
                 OpenData=()=>Process.Start(new ProcessStartInfo("explorer.exe",store.DirectoryPath){UseShellExecute=true}),
                 ReplayChecking=SetReplayChecking, ChooseReplayFolder=ChooseReplayFolder,
                 ReleaseDisplay=()=>{tracker.ReleaseHeldDisplay();store.Save(ledger);Refresh();},

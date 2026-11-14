@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
-  <ItemGroup><Compile Include="../src/LinkedCounts.cs" Link="LinkedCounts.cs"/><Compile Include="../src/Tracker.cs" Link="Tracker.cs"/><Compile Include="../src/ReplayReconciliation.cs" Link="ReplayReconciliation.cs"/><Compile Include="../src/RareChestBackup.cs" Link="RareChestBackup.cs"/><Compile Include="../src/RewardEvidence.cs" Link="RewardEvidence.cs"/><Compile Include="../replay-worker/ReplayClock.cs" Link="ReplayClock.cs"/></ItemGroup>
+  <ItemGroup><Compile Include="../src/LiveChestFusion.cs" Link="LiveChestFusion.cs"/><Compile Include="../src/LinkedCounts.cs" Link="LinkedCounts.cs"/><Compile Include="../src/Tracker.cs" Link="Tracker.cs"/><Compile Include="../src/ReplayReconciliation.cs" Link="ReplayReconciliation.cs"/><Compile Include="../src/RareChestBackup.cs" Link="RareChestBackup.cs"/><Compile Include="../src/RewardEvidence.cs" Link="RewardEvidence.cs"/><Compile Include="../replay-worker/ReplayClock.cs" Link="ReplayClock.cs"/></ItemGroup>
 </Project>

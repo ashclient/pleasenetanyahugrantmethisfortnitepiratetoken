@@ -1,3 +1,15 @@
+## Overlay controls and live detection (0.5.2)
+
+Settings and the tray include **Show overlay** and **Reset overlay position**. Visibility is remembered across restarts; hiding does not pause capture or counting. Reset restores the top-left position on the primary display. Overview and Settings show total tracked matches (replay fragments are not counted as additional games).
+
+English templates now cover multiple HUD text sizes; Japanese also covers a smaller size. The focused OCR lane recognizes ordinary and rare chest labels with nearby XP, requires two fresh matching samples, and can count a missed visual popup while it is still on screen. Late visual confirmation consumes the existing OCR credit rather than adding the same chest twice. The first observed X3 still counts as one observed opening; later confirmed multiplier increases require changed XP. Notification recognition is still an estimate; missed/bunched events require live diagnostic traces to reproduce precisely.
+
+## Sync troubleshooting (0.5.1)
+
+A group supports up to **32 members**, including the creator. Everyone must use the **same group's invite code**, rather than creating separate two-person groups. All participants should run 0.5.1 or newer; the version is shown at the bottom of Settings. Older releases can point to the private, retired service and report only “Sync request failed”. New errors include the HTTP status and server host. Temporary network/proxy failures retain the last synced totals and retry; a timed-out sync cannot crash the client.
+
+The direct Cloudflare service was verified with four members and simultaneous updates. Current totals are snapshots keyed by each installation's persistent identity; reconnecting never adds another copy. Members' saved totals remain included while offline. The UI refreshes group totals automatically every ten seconds.
+
 ## Cloudflare deployment through GitHub
 
 Sync runs directly on a standalone Cloudflare Worker with no web pages. The previous ChatGPT website remains owner-private. **Use [the Cloudflare-connected EXE](https://github.com/ashclient/pleasenetanyahugrantmethisfortnitepiratetoken/releases/download/v0.5.0-build.43233943121/TreasureLedger.exe); build.26 and earlier still point to the old service.** Personal tracking/history remain local. No Cloudflare or ChatGPT login is needed in the app. Create/join a group in Linked counts and clients sync automatically.

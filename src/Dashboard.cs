@@ -3,6 +3,7 @@ namespace TreasureLedger;
 
 public sealed class DashboardActions
 {
+    public Action<bool> OverlayVisible {get;init;}=_=>{};public Action ResetOverlay {get;init;}=()=>{};
     public Action<string> SetLanguage {get;init;}=_=>{}; public Action Retry {get;init;}=()=>{};
     public Action SaveDiagnosis {get;init;}=()=>{}; public Action ReviewRewards {get;init;}=()=>{};
     public Action OpenData {get;init;}=()=>{}; public Action<bool> ReplayChecking {get;init;}=_=>{};
@@ -52,10 +53,11 @@ public sealed class Dashboard : Form
     readonly DashboardActions actions;readonly Panel body=new(){Dock=DockStyle.Fill,Padding=new Padding(28),BackColor=Color.FromArgb(246,248,252)};
     readonly Dictionary<string,Control> pages=[];readonly Dictionary<string,Button> navigation=[];
     readonly LedgerGrid matches=new("Started (local time)","Chests","Broken","Rewards","State"),recent=new("Started (local time)","Chests","State"),rewards=new("Reward","All-time tracked","Current game","Linked all-time"),members=new("Member","Chests","Rewards","Last online");
-    readonly Label current=Value(),personal=Value(),linked=Value(),phase=Note(),capture=Note(),replay=Note(),linkStatus=Note(),groupTitle=Note(),folder=Note(),hold=Note();
+    readonly Label current=Value(),personal=Value(),linked=Value(),phase=Note(),capture=Note(),replay=Note(),linkStatus=Note(),groupTitle=Note(),folder=Note(),hold=Note(),matchTotal=Note(),settingsMatches=Note();
     readonly TextBox diagnostics=new(){Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.FixedSingle};
     readonly TextBox name=new(){Width=230,MaxLength=32},group=new(){Width=230,Text="My crew",MaxLength=40},code=new(){Width=430},invite=new(){Width=480,ReadOnly=true};
     readonly ComboBox language=new(){DropDownStyle=ComboBoxStyle.DropDownList,Width=230};
+    readonly CheckBox showOverlay=new(){Text="Show overlay",AutoSize=true};
     readonly CheckBox replayEnabled=new(){Text="Check completed replays automatically",AutoSize=true},freeze=new(){Text="Pause diagnostic view",AutoSize=true};
     readonly Button release,create,join,leave,remove;bool updating,linkBusy,loadedName;DateTime nextDiagnostic;
     public Dashboard(DashboardActions actions)
@@ -70,20 +72,20 @@ public sealed class Dashboard : Form
             var b=new Button{Text=title,TextAlign=ContentAlignment.MiddleLeft,Size=new Size(154,43),FlatStyle=FlatStyle.Flat,ForeColor=Color.FromArgb(192,204,225),Margin=new Padding(0,3,0,3),Padding=new Padding(12,0,0,0)};b.FlatAppearance.BorderSize=0;
             b.Click+=(_,_)=>ShowPage(title);navigation[title]=b;nav.Controls.Add(b);
         }
-        var bottom=new Label{Dock=DockStyle.Bottom,Height=56,ForeColor=Color.FromArgb(153,171,200),Text="Alt+T  ·  overlay lock\nCounts saved on this PC",Font=new Font("Segoe UI",9)};sidebar.Controls.Add(bottom);
+        var bottom=new Label{Dock=DockStyle.Bottom,Height=56,ForeColor=Color.FromArgb(153,171,200),Text="Alt+T  ·  overlay lock\nv0.5.2 · Cloudflare sync",Font=new Font("Segoe UI",9)};sidebar.Controls.Add(bottom);
         var overview=Page("Overview","Your treasure, at a glance",out var overviewRoot);
         overviewRoot.RowStyles[2].Height=150;
         var cards=new TableLayoutPanel{Dock=DockStyle.Top,Height=138,ColumnCount=3,Margin=new Padding(0,12,0,20)};
         for(int i=0;i<3;i++)cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,33.333f));
         cards.Controls.Add(Card("CURRENT GAME",current));cards.Controls.Add(Card("ALL-TIME TRACKED",personal));cards.Controls.Add(Card("LINKED ALL-TIME",linked));overviewRoot.Controls.Add(cards,0,2);
-        var overviewDetails=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=5};overviewDetails.RowStyles.Add(new(SizeType.Absolute,45));overviewDetails.RowStyles.Add(new(SizeType.Absolute,54));overviewDetails.RowStyles.Add(new(SizeType.Absolute,32));overviewDetails.RowStyles.Add(new(SizeType.Percent,100));overviewDetails.RowStyles.Add(new(SizeType.Absolute,58));
-        overviewDetails.Controls.Add(phase);overviewDetails.Controls.Add(hold);overviewDetails.Controls.Add(new Label{Text="RECENT MATCHES",ForeColor=Muted,Dock=DockStyle.Fill,Font=new Font("Segoe UI",9,FontStyle.Bold)});overviewDetails.Controls.Add(recent);overviewDetails.Controls.Add(replay);overviewRoot.Controls.Add(overviewDetails,0,3);
+        var overviewDetails=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=6};overviewDetails.RowStyles.Add(new(SizeType.Absolute,32));overviewDetails.RowStyles.Add(new(SizeType.Absolute,45));overviewDetails.RowStyles.Add(new(SizeType.Absolute,54));overviewDetails.RowStyles.Add(new(SizeType.Absolute,32));overviewDetails.RowStyles.Add(new(SizeType.Percent,100));overviewDetails.RowStyles.Add(new(SizeType.Absolute,58));
+        overviewDetails.Controls.Add(matchTotal);overviewDetails.Controls.Add(phase);overviewDetails.Controls.Add(hold);overviewDetails.Controls.Add(new Label{Text="RECENT MATCHES",ForeColor=Muted,Dock=DockStyle.Fill,Font=new Font("Segoe UI",9,FontStyle.Bold)});overviewDetails.Controls.Add(recent);overviewDetails.Controls.Add(replay);overviewRoot.Controls.Add(overviewDetails,0,3);
         var matchPage=Page("Matches","Every match, with replay corrections",out var mr);mr.RowStyles[2].Height=0;mr.Controls.Add(matches,0,3);
         var rewardPage=Page("Rewards","Saved discoveries across your games",out var rr);rr.Controls.Add(Row(Button("Review saved rewards",()=>actions.ReviewRewards())),0,2);rr.Controls.Add(rewards,0,3);
         Page("Linked counts","Pair with friends using a private invite code",out var lr);
         var linkContent=Stack();lr.Controls.Add(linkContent,0,3);lr.RowStyles[2].Height=0;
         linkContent.Controls.Add(groupTitle);linkContent.Controls.Add(linkStatus);
-        linkContent.Controls.Add(Note("Only your display name and totals are shared. Offline members keep their last synced total.\nThe linked total includes you. Keep invite codes private."));
+        linkContent.Controls.Add(Note("Only your display name and totals are shared. Offline members keep their last synced total.\nUp to 32 people per group. Everyone uses the same invite code and latest app.\nThe linked total includes you. Keep invite codes private."));
         linkContent.Controls.Add(Row(Field("Your display name",name),Button("Save name",()=>{actions.Rename(name.Text);_=RunLink(actions.Sync);} )));
         create=AsyncButton("Create group",()=>actions.Create(name.Text,group.Text));join=AsyncButton("Join group",()=>actions.Join(name.Text,code.Text));
         linkContent.Controls.Add(Row(Field("New group name",group),create));linkContent.Controls.Add(Row(Field("Invite code to join",code),join));
@@ -92,6 +94,10 @@ public sealed class Dashboard : Form
         leave=AsyncButton("Leave group",actions.Leave);remove=AsyncButton("Remove selected member",()=>actions.Remove(members.CurrentRow?.Tag as string??""));
         linkContent.Controls.Add(Row(AsyncButton("Sync now",actions.Sync),remove,leave));
         Page("Settings","Recognition and replay preferences",out var sr);var settings=Stack();sr.Controls.Add(settings,0,3);sr.RowStyles[2].Height=0;
+        showOverlay.CheckedChanged+=(_,_)=>{if(!updating)actions.OverlayVisible(showOverlay.Checked);};
+        settings.Controls.Add(Row(showOverlay,Button("Reset overlay position",actions.ResetOverlay)));
+        settings.Controls.Add(Note("Tracking continues while the overlay is hidden. Reset moves it to the top-left of your primary display."));
+        settings.Controls.Add(settingsMatches);
         language.Items.AddRange(["English","日本語 · Japanese"]);language.SelectedIndexChanged+=(_,_)=>{if(!updating)actions.SetLanguage(language.SelectedIndex==1?"ja-JP":"en-US");};
         settings.Controls.Add(Field("Fortnite HUD language",language));settings.Controls.Add(Note("Choose the language used inside Fortnite. English is the default for new installs."));
         replayEnabled.CheckedChanged+=(_,_)=>{if(!updating)actions.ReplayChecking(replayEnabled.Checked);};settings.Controls.Add(replayEnabled);settings.Controls.Add(folder);
@@ -124,8 +130,9 @@ public sealed class Dashboard : Form
     void SetLinkButtons(bool enabled){create.Enabled=join.Enabled=leave.Enabled=remove.Enabled=enabled;}
     public void UpdateState(Ledger ledger,Tracker tracker,string message,List<Observation> latest,Preferences preferences,string replayMessage,LinkClient links,string replayFolder)
     {
-        updating=true;language.SelectedIndex=preferences.Language=="ja-JP"?1:0;replayEnabled.Checked=preferences.ReplayChecking;updating=false;
+        updating=true;showOverlay.Checked=preferences.OverlayVisible;language.SelectedIndex=preferences.Language=="ja-JP"?1:0;replayEnabled.Checked=preferences.ReplayChecking;updating=false;
         var totals=ledger.Totals;long own=totals.GetValueOrDefault("Chest");current.Text=tracker.DisplayedChests.ToString("N0");personal.Text=own.ToString("N0");linked.Text=links.Combined(own)?.ToString("N0")??"—";
+        int totalMatches=ledger.Matches.Count(m=>!m.ReplayFragment);matchTotal.Text=$"TOTAL MATCHES  {totalMatches:N0}";settingsMatches.Text=$"Total matches tracked on this PC: {totalMatches:N0}";
         phase.Text=tracker.Phase;replay.Text=replayMessage;folder.Text="Replay folder: "+replayFolder;
         hold.Text=tracker.DisplayWaitingForReplay?"Previous game held · waiting for its completed replay. New game chests are being saved.":tracker.DisplayMatch?.Id!=tracker.Current?.Id&&tracker.DisplayMatch is not null?"Previous game retained · switches after replay checking and the next game's first chest.":"Current game / all-time tracked / linked all-time tracked";
         release.Enabled=ledger.PendingDisplayMatchId.HasValue;
@@ -138,6 +145,8 @@ public sealed class Dashboard : Form
         if(!freeze.Checked&&DateTime.UtcNow>=nextDiagnostic){capture.Text=message;var text=string.Join(Environment.NewLine,latest.Select(x=>x.Text));if(diagnostics.Text!=text)diagnostics.Text=text;nextDiagnostic=DateTime.UtcNow.AddSeconds(1);}
     }
     internal LedgerGrid MatchGrid=>matches;
+    internal CheckBox OverlayControl=>showOverlay;
+    internal string MatchTotalText=>matchTotal.Text;
 }
 public static class DashboardSmoke
 {
@@ -146,9 +155,12 @@ public static class DashboardSmoke
         var ledger=new Ledger();for(int i=0;i<100;i++)ledger.Matches.Add(new(){Started=DateTimeOffset.UtcNow.AddHours(-i),Ended=DateTimeOffset.UtcNow.AddHours(-i).AddMinutes(25),Events=[new(DateTimeOffset.UtcNow,"Chest","test")]});
         var tracker=new Tracker(ledger);string path=Path.Combine(Path.GetTempPath(),"TreasureLedger-ui-"+Guid.NewGuid().ToString("N"));
         try{
-            var links=new LinkClient(path);using var dashboard=new Dashboard(new());dashboard.Show();Application.DoEvents();
-            void Update()=>dashboard.UpdateState(ledger,tracker,"Watching Fortnite · recognition active",[],new(),"Replay checked · 2 missed chests added",links,"C:\\Users\\Player\\AppData\\Local\\FortniteGame\\Saved\\Demos");
-            Update();dashboard.ShowPage("Matches");Application.DoEvents();var grid=dashboard.MatchGrid;grid.CurrentCell=grid.Rows[45].Cells[0];grid.FirstDisplayedScrollingRowIndex=40;var selected=grid.CurrentRow!.Tag;int scroll=grid.FirstDisplayedScrollingRowIndex;
+            var links=new LinkClient(path);var preferences=new Preferences();int visibilityChanges=0;
+            using var dashboard=new Dashboard(new(){OverlayVisible=v=>{preferences.OverlayVisible=v;visibilityChanges++;}});dashboard.Show();Application.DoEvents();
+            void Update()=>dashboard.UpdateState(ledger,tracker,"Watching Fortnite · recognition active",[],preferences,"Replay checked · 2 missed chests added",links,"C:\\Users\\Player\\AppData\\Local\\FortniteGame\\Saved\\Demos");
+            Update();dashboard.OverlayControl.Checked=false;Update();
+            if(preferences.OverlayVisible||visibilityChanges!=1||!dashboard.MatchTotalText.Contains("100"))throw new Exception("Overlay visibility preference or total match summary failed");
+            dashboard.ShowPage("Matches");Application.DoEvents();var grid=dashboard.MatchGrid;grid.CurrentCell=grid.Rows[45].Cells[0];grid.FirstDisplayedScrollingRowIndex=40;var selected=grid.CurrentRow!.Tag;int scroll=grid.FirstDisplayedScrollingRowIndex;
             for(int i=0;i<100;i++)Update();ledger.Matches[0].Events.Add(new(DateTimeOffset.UtcNow,"Chest","new chest"));Update();
             if(grid.FirstDisplayedScrollingRowIndex!=scroll||!Equals(grid.CurrentRow!.Tag,selected))throw new Exception("Settings scrolling or selection changed during tracking updates");
             foreach(string page in new[]{"Overview","Matches","Linked counts","Settings"}){dashboard.ShowPage(page);Application.DoEvents();using var image=new Bitmap(dashboard.Width,dashboard.Height);dashboard.DrawToBitmap(image,new Rectangle(Point.Empty,dashboard.Size));image.Save("settings-"+page.Replace(" ","-").ToLowerInvariant()+".png");}

@@ -14,13 +14,14 @@ public sealed class RareChestBackup
     readonly Queue<DateTimeOffset> visualTimes=new();
     public string Summary {get;private set;}="Rare-chest OCR backup ready";
     static string Clean(string text) => text.Normalize(NormalizationForm.FormKC).ToUpperInvariant().Replace('×','X');
-    public static bool ReadEvidence(IReadOnlyList<Observation> rows,out int multiplier,out string xp)
+    public static bool ReadEvidence(IReadOnlyList<Observation> rows,out int multiplier,out string xp,bool includeRegular=false)
     {
         multiplier=1;xp="";
         foreach(var row in rows)
         {
             string label=Clean(row.Text);string compact=Regex.Replace(label,@"\s+","");
-            if(!Regex.IsMatch(compact,@"^(RARECHEST|レア(な)?(宝箱|チェスト))(X[2-9])?$") || compact.Length>48) continue;
+            string names=includeRegular?@"^(RARECHEST|CHEST(SEARCHED)?|レア(な)?(宝箱|チェスト)|宝箱)(X[2-9])?$":@"^(RARECHEST|レア(な)?(宝箱|チェスト))(X[2-9])?$";
+            if(!Regex.IsMatch(compact,names)||compact.Length>48)continue;
             var number=Regex.Match(compact,@"X([2-9])");
             foreach(var near in rows.Where(r=>Math.Abs(r.X-row.X)<.30 && Math.Abs(r.Y-row.Y)<.15))
             {

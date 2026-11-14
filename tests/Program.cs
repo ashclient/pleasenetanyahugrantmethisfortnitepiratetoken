@@ -278,4 +278,53 @@ try{
 }finally{Directory.Delete(linkPath,true);}
 var emptyReplay=new MatchRecord{Started=time.AddHours(10),Ended=time.AddHours(11),ReplaySessionId="empty"};heldLedger.Matches.Add(emptyReplay);held.ReplayApplied(emptyReplay.Id);
 Check(held.DisplayedChests==2,"An empty replay cannot reset a retained display to zero");
+
+var multiPath=Path.Combine(Path.GetTempPath(),"ledger-multi-test-"+Guid.NewGuid().ToString("N"));
+try{
+ int calls=0;
+ var handler=new SyncTestHandler(_=>{calls++;return new(calls==1?System.Net.HttpStatusCode.Forbidden:System.Net.HttpStatusCode.OK){Content=new StringContent(calls==1?"<html>Request blocked</html>":"{\"groupId\":\"room\",\"groupName\":\"Crew\",\"members\":[]}")};});
+ var groupClient=new LinkClient(Path.Combine(multiPath,"group"),http:new System.Net.Http.HttpClient(handler));
+ var myId=groupClient.Config.MemberId;groupClient.Config.GroupId="room";
+ groupClient.Config.Cache=new(){Members=[new(){Id=myId,Chests=10},new(){Id="peer2",Chests=20},new(){Id="peer3",Chests=30},new(){Id="peer4",Chests=40}]};
+ Check(groupClient.Combined(10)==100,"Native linked total sums all four members, including self once");
+ await groupClient.Sync(new(10,[]));
+ Check(groupClient.IsLinked&&groupClient.Combined(10)==100&&groupClient.Status.Contains("HTTP 403")&&groupClient.Status.Contains("workers.dev"),"HTML proxy rejection reports host/status and preserves cached membership and counts");
+ await groupClient.Sync(new(10,[]));Check(groupClient.Status.StartsWith("Synced")&&calls==2,"Sync retries and recovers after a temporary HTML rejection");
+ var revoked=new LinkClient(Path.Combine(multiPath,"revoked"),http:new System.Net.Http.HttpClient(new SyncTestHandler(_=>new(System.Net.HttpStatusCode.Forbidden){Content=new StringContent("{\"error\":\"Membership is no longer active\"}")})));revoked.Config.GroupId="room";
+ await revoked.Sync(new(1,[]));Check(!revoked.IsLinked&&revoked.Status.Contains("Membership is no longer active"),"Authenticated membership rejection remains distinct from temporary proxy failure");
+ var timeout=new LinkClient(Path.Combine(multiPath,"timeout"),http:new System.Net.Http.HttpClient(new SyncTestHandler(_=>throw new TaskCanceledException("Simulated HTTP timeout"))));timeout.Config.GroupId="room";
+ await timeout.Sync(new(1,[]));Check(timeout.IsLinked&&timeout.Status.Contains("timeout"),"HTTP timeout retains membership and does not escape background sync");
+ var legacy=new LinkClient(Path.Combine(multiPath,"legacy"),new Uri("https://retired.chatgpt.site/api/v1/"),new System.Net.Http.HttpClient(new SyncTestHandler(_=>new(System.Net.HttpStatusCode.Unauthorized){Content=new StringContent("<html>Sign in</html>")})));
+ try{await legacy.Create("Player","Crew",new(0,[]));Check(false,"Legacy endpoint must reject");}catch(InvalidOperationException e){Check(e.Message.Contains("Outdated sync server")&&e.Message.Contains("HTTP 401")&&!e.Message.Contains("<html>"),"Retired-site rejection explains updating all clients without displaying HTML");}
+}finally{Directory.Delete(multiPath,true);}
+
+foreach(string label in new[]{"CHEST","CHEST SEARCHED","宝箱","RARE CHEST","レア宝箱"}){
+ var fusion=new LiveChestFusion();Check(fusion.Update(Rare(0,label,"+100 XP"),time,false,0)==0,"Live OCR waits for a second fresh sample: "+label);
+ Check(fusion.Update(Rare(.3,label,"+100 XP"),time.AddSeconds(.3),false,0)==1,"Live OCR counts confirmed popup before it disappears: "+label);
+ Check(fusion.Update([],time.AddSeconds(.4),true,1)==0,"Late visual confirmation cannot duplicate OCR event: "+label);
+}
+var visualFirstFusion=new LiveChestFusion();Check(visualFirstFusion.Update([],time,true,1)==1,"Visual events still count immediately without OCR");
+visualFirstFusion.Update(Rare(.2,"CHEST","+100 XP"),time.AddSeconds(.2),true,0);
+Check(visualFirstFusion.Update(Rare(.5,"CHEST","+100 XP"),time.AddSeconds(.5),true,0)==0,"Delayed ordinary-chest OCR cannot duplicate an existing visual event");
+var stackFusion=new LiveChestFusion();stackFusion.Update(Rare(0,"宝箱 X3","+300 XP"),time,false,0);
+Check(stackFusion.Update(Rare(.3,"宝箱 X3","+300 XP"),time.AddSeconds(.3),false,0)==1,"Live OCR first seeing X3 counts only one observed opening");
+stackFusion.Update(Rare(.7,"宝箱 X4","+400 XP"),time.AddSeconds(.7),false,0);
+Check(stackFusion.Update(Rare(1,"宝箱 X4","+400 XP"),time.AddSeconds(1),false,0)==1,"Fresh multiplier plus changed XP confirms another opening live");
+Check(stackFusion.Update([],time.AddSeconds(1.1),true,2)==0,"Two late visual openings consume two OCR credits");
+var rearmFusion=new LiveChestFusion();rearmFusion.Update(Rare(0,"CHEST"),time,false,0);rearmFusion.Update(Rare(.3,"CHEST"),time.AddSeconds(.3),false,0);
+foreach(double t in new[]{.8,1.1,1.5})rearmFusion.Update(NoRare(t),time.AddSeconds(t),false,0);
+Check(rearmFusion.Update([],time.AddSeconds(2),true,1)==1,"A cleared popup cannot suppress a new visual chest");
+foreach(string label in new[]{"Search chests 0/5","OPEN CHEST","宝箱を3個開ける"}){
+ var negativeFusion=new LiveChestFusion();negativeFusion.Update(Rare(0,label),time,false,0);
+ Check(negativeFusion.Update(Rare(.3,label),time.AddSeconds(.3),false,0)==0,"Live OCR rejects quest and interaction text: "+label);
+}
+var noXpFusion=new LiveChestFusion();noXpFusion.Update(Rare(0,"CHEST",null),time,false,0);
+Check(noXpFusion.Update(Rare(.3,"CHEST",null),time.AddSeconds(.3),false,0)==0,"Ordinary chest label without XP cannot count");
+var staleFusion=new LiveChestFusion();staleFusion.Update(Rare(0,"CHEST"),time,false,0);
+Check(staleFusion.Update(Rare(.3,"CHEST"),time.AddSeconds(10),false,0)==0,"Old asynchronous OCR cannot add a live chest");
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");
+
+sealed class SyncTestHandler(Func<System.Net.Http.HttpRequestMessage,System.Net.Http.HttpResponseMessage> respond):System.Net.Http.HttpMessageHandler
+{
+ protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request,CancellationToken token)=>Task.FromResult(respond(request));
+}

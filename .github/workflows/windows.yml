@@ -86,8 +86,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "v0.5.0-build.${{ github.run_id }}"
+          $tag = "v0.5.2-build.${{ github.run_id }}"
           $notes = @'
+          Version 0.5.2 adds persistent Show overlay controls in Settings and the tray, a Reset overlay position button, and total tracked match counts in Overview and Settings. Hidden overlays do not pause tracking. English matching now covers several HUD text sizes; Japanese includes a smaller text size. A dedicated label-plus-XP OCR confirmation can fill ordinary and rare chest misses live in either language instead of waiting for the popup to end; visual/OCR evidence is deduplicated. Actual gameplay detection still depends on visible notifications; additional diagnostics may be needed for unobserved misses.
+
+          The included sync fixes embed the direct Cloudflare endpoint in the source default as well as the release build. Every participant should update and use the same group's invite code; groups support up to 32 members. The previous ChatGPT-hosted endpoint returns HTML HTTP 401, which older clients displayed only as 'Sync request failed'. Errors now include HTTP status and server host without exposing credentials or raw HTML. Temporary HTML/proxy failures preserve membership and retry automatically; HTTP timeouts no longer escape background sync.
+
+          Live validation confirmed three and four members, correct combined counts and concurrent updates; added native regression tests cover multi-member sums, HTML rejections, recovery, revoked membership and timeouts.
+
           Settings has separate Overview, Matches, Rewards, Linked counts, Settings and Diagnostics pages. Match rows update in place; tracking ticks no longer rebuild the lists or interrupt scrolling and selection.
 
           Chest overlay order: current game / all-time tracked / linked all-time tracked. The previous game stays visible in the lobby, receives replay corrections, and switches only after the next game's first chest and the prior replay check. New-game detections keep saving while waiting. If a replay is unavailable, Settings can release the held display; disabling replay checks also releases it.
