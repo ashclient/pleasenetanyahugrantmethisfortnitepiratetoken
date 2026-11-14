@@ -1,3 +1,7 @@
+## Current-game display repair (0.5.4)
+
+A missing old replay can no longer keep the current-game number stuck. Existing saved display anchors are repaired on startup without modifying chest history. The last game stays visible in the lobby; the first chest in the next game switches directly to the live count. Late replay corrections continue updating prior match history and lifetime totals. They do not block or replace an active game's display.
+
 # Treasure Ledger 0.5.3
 
 [Download the latest standalone Windows EXE](https://github.com/ashclient/pleasenetanyahugrantmethisfortnitepiratetoken/releases/download/v0.5.3-build.43549170124/TreasureLedger.exe).
@@ -26,7 +30,7 @@ The repository's **Deploy Cloudflare sync and build EXE** action handles D1 prov
 
 The chest overlay reads **current game / all-time tracked / linked all-time tracked**. Unpaired clients show a dash for the linked total. Settings → Linked counts lets one person create a group and share its invite code. Others join using a display name; clients sync automatically every 10 seconds while open. The total includes you and each member's last synced contribution, including offline members. Reopening the same installation replaces its snapshot; it never adds the saved lifetime count twice. Rewards are shared too, in the settings Rewards table. Only display names and aggregate totals leave the PC. Keep invite codes private. Removing a member rotates the invite; closing a group deletes its online records. Pairing identity is stored locally in linked-counts.json: preserve it when upgrading. If you delete it or move to another PC, ask the creator to remove the old member to avoid counting both installations. This is installation-based pairing, not an Epic account login.
 
-The previous game remains on the overlay in the lobby, including replay corrections. The display changes directly to the next game's count on its first chest, after the previous replay check finishes. If the replay is late, new chests still save while the old count is held. If Record Replays is off or its replay cannot be read, use Settings → Show current game or disable replay checking. Lifetime counts keep accumulating throughout.
+The previous game remains on the overlay in the lobby, including replay corrections. The display changes directly to the next game's count on its first chest, regardless of whether a previous replay is available. If the previous replay is late or unavailable, the new game still displays live. Lifetime counts keep accumulating throughout.
 
 History tables have independent scrollbars and update rows in place. Times use the Windows timezone. Settings pages and scrolling are checked by the packaged self-test; settings-*.png previews are included in CI artifacts.
 

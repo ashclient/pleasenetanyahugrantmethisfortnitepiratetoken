@@ -261,12 +261,12 @@ Check(held.DisplayedChests==1&&heldLedger.Totals["Chest"]==16,"First next-game c
 held.ReplayApplied(first.Id);Check(held.DisplayedChests==1,"Old replay cannot replace the new game's display");
 var second=held.Current!;held.Process(Lobby(45),time.AddSeconds(45));held.Process(Lobby(45.7),time.AddSeconds(45.7));held.Process(Header(50,"WAITING FOR PLAYERS"),time.AddSeconds(50));
 held.Process(Opening(),time.AddSeconds(55));held.Process(Opening(),time.AddSeconds(56));
-Check(held.DisplayMatch?.Id==second.Id&&held.DisplayedChests==1&&held.Current!.Chests==2&&held.DisplayWaitingForReplay,"New-game chests are saved while the prior replay is pending");
+Check(held.DisplayMatch?.Id==held.Current!.Id&&held.DisplayedChests==2&&held.Current.Chests==2&&!held.DisplayWaitingForReplay,"New-game chests show live even when the previous replay is unavailable");
 var persistedHold=JsonSerializer.Deserialize<Ledger>(JsonSerializer.Serialize(heldLedger))!;var resumedHold=new Tracker(persistedHold);resumedHold.SetReplayWaiting(true);
-Check(resumedHold.DisplayedChests==1&&resumedHold.DisplayWaitingForReplay,"Display hold and pending match survive restart");
+Check(resumedHold.DisplayedChests==2&&!resumedHold.DisplayWaitingForReplay,"Restart resumes the actual live count instead of a stale replay hold");
 second.ReplaySessionId="second";held.ReplayApplied(second.Id);
-Check(held.DisplayedChests==2&&!held.DisplayWaitingForReplay,"Delayed replay releases the display to already-counted new-game chests");
-resumedHold.SetReplayWaiting(false);Check(resumedHold.DisplayedChests==2,"Disabling unavailable replay checks releases the pending game");
+Check(held.DisplayedChests==2&&!held.DisplayWaitingForReplay,"Delayed replay cannot replace the already-live new-game display");
+resumedHold.SetReplayWaiting(false);Check(resumedHold.DisplayedChests==2,"Disabling replay checks leaves the current live display unchanged");
 var linkPath=Path.Combine(Path.GetTempPath(),"ledger-link-test-"+Guid.NewGuid().ToString("N"));
 try{
  var client=new LinkClient(linkPath);string identity=client.Config.MemberId;
@@ -333,6 +333,20 @@ Check(rapidRare.Update(Rare(.3,"RARE CHEST X9","+8100 XP"),time.AddSeconds(.3),f
 rapidRare.Update(Rare(.7,"RARE CHEST X12","+10800 XP"),time.AddSeconds(.7),false,0);
 Check(rapidRare.Update(Rare(1,"RARE CHEST X12","+10800 XP"),time.AddSeconds(1),false,0)==3,"Confirmed two-digit multiplier jump preserves three rapid chest openings");
 Check(rapidRare.Update([],time.AddSeconds(1.1),true,4)==0,"Rapid stacked OCR openings consume matching late visual events without duplicates");
+
+var staleDisplayLedger=new Ledger();
+MatchRecord FixtureMatch(int ago,int chests,bool finished,string? replayId=null)=>new(){Started=time.AddMinutes(ago),Ended=finished?time.AddMinutes(ago+10):null,ReplaySessionId=replayId,Events=Enumerable.Range(0,chests).Select(_=>new LedgerEvent(time.AddMinutes(ago+1),"Chest","synthetic display regression")).ToList()};
+var ancient=FixtureMatch(0,1,true);var checkedPrevious=FixtureMatch(20,33,true,"previous-checked");var actualLive=FixtureMatch(40,5,false);
+staleDisplayLedger.Matches.AddRange([ancient,checkedPrevious,actualLive]);staleDisplayLedger.DisplayMatchId=ancient.Id;staleDisplayLedger.PendingDisplayMatchId=actualLive.Id;
+var repairedDisplay=new Tracker(staleDisplayLedger);repairedDisplay.SetReplayWaiting(true);
+Check(repairedDisplay.DisplayedChests==5&&repairedDisplay.DisplayMatch?.Id==actualLive.Id&&staleDisplayLedger.PendingDisplayMatchId is null,"Screenshot regression: old 1-chest anchor is repaired to the actual 5-chest current game on startup");
+int personalBeforeCorrection=staleDisplayLedger.Totals["Chest"];checkedPrevious.Events.Add(new(time,"Chest","late replay correction"));repairedDisplay.ReplayApplied(checkedPrevious.Id);
+Check(repairedDisplay.DisplayedChests==5&&staleDisplayLedger.Totals["Chest"]==personalBeforeCorrection+1,"Late replay correction updates lifetime totals without replacing the current five chests");
+var stuckLobby=new Ledger{Matches=[ancient,checkedPrevious],DisplayMatchId=ancient.Id,PendingDisplayMatchId=checkedPrevious.Id};var lobbyRepair=new Tracker(stuckLobby);lobbyRepair.SetReplayWaiting(true);
+Check(lobbyRepair.DisplayedChests==34&&stuckLobby.Matches.Count==2,"Startup in lobby repairs an old anchor to the most recent completed game without deleting history");
+var danglingOld=FixtureMatch(-30,1,false);var newerFinished=FixtureMatch(-10,9,true,"latest-done");
+var danglingLedger=new Ledger{Matches=[danglingOld,newerFinished],DisplayMatchId=danglingOld.Id};var danglingTracker=new Tracker(danglingLedger);
+Check(danglingTracker.Current is null&&danglingTracker.DisplayedChests==9,"An ancient unfinished record cannot override a newer completed game at startup");
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");
 
 sealed class SyncTestHandler(Func<System.Net.Http.HttpRequestMessage,System.Net.Http.HttpResponseMessage> respond):System.Net.Http.HttpMessageHandler

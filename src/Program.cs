@@ -199,6 +199,7 @@ public sealed class LedgerApplication : ApplicationContext
         catch { preferences = new(); }
         links=new LinkClient(store.DirectoryPath);
         tracker.SetReplayWaiting(preferences.ReplayChecking);
+        store.Save(ledger);
         if(!ledger.ReplayTrackingFrom.HasValue) { ledger.ReplayTrackingFrom=DateTimeOffset.UtcNow; store.Save(ledger); }
         replayMonitor = new ReplayMonitor(store.DirectoryPath,ledger.ReplayTrackingFrom.Value);
         if(!string.IsNullOrWhiteSpace(preferences.ReplayFolder)) replayMonitor.Folder=preferences.ReplayFolder;

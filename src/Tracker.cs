@@ -56,39 +56,34 @@ public sealed class Tracker
     public bool WaitForReplay { get; private set; }
     public MatchRecord? DisplayMatch => ledger.Matches.FirstOrDefault(m=>m.Id==ledger.DisplayMatchId);
     public int DisplayedChests => DisplayMatch is not { } m ? 0 : m.ReplaySessionId is { } session ? ledger.Matches.Where(x=>x.ReplaySessionId==session).Sum(x=>x.Chests) : m.Chests;
-    public bool DisplayWaitingForReplay => WaitForReplay && ledger.PendingDisplayMatchId.HasValue && DisplayMatch?.ReplaySessionId is null;
+    public bool DisplayWaitingForReplay => false; // Replays never block the live display.
     public string LastDecision { get; private set; } = "No frame processed yet";
     public string Phase { get; private set; } = "Waiting for a match";
 
     public Tracker(Ledger ledger)
     {
         this.ledger = ledger;
-        Current = ledger.Matches.LastOrDefault(x => !x.Ended.HasValue);
+        var latestMatch=ledger.Matches.OrderByDescending(m=>m.Started).FirstOrDefault();
+        Current=latestMatch is {Ended:null}?latestMatch:null;
         gameplaySeen = Current?.Events.Count > 0;
-        if(!ledger.DisplayMatchId.HasValue || DisplayMatch is null) ledger.DisplayMatchId=ledger.Matches.Where(m=>m.Chests>0).OrderByDescending(m=>m.Started).FirstOrDefault()?.Id;
+        RepairDisplay();
         if (Current is not null) Phase = "Resumed tracked match";
     }
     public void ReplayApplied(Guid id)
     {
-        var match = ledger.Matches.First(x=>x.Id==id);
-        if(DisplayMatch is null && match.Chests>0) ledger.DisplayMatchId=id;
-        else if(DisplayMatch is {} displayed && match.Started>displayed.Started && match.Chests>0 && !ledger.PendingDisplayMatchId.HasValue) ledger.PendingDisplayMatchId=id;
-        AdvanceDisplay();
-        if(Current?.Id == id) Phase="Match finished · replay checked";
+        RepairDisplay();
+        if(Current?.Id==id)Phase="Match finished · replay checked";
     }
-    public void SetReplayWaiting(bool enabled) { WaitForReplay=enabled;AdvanceDisplay(); }
-    public void ReleaseHeldDisplay() { if(ledger.PendingDisplayMatchId is {} next) {ledger.DisplayMatchId=next;ledger.PendingDisplayMatchId=null;} }
-    void ChestOpenedForDisplay()
+    public void SetReplayWaiting(bool enabled){WaitForReplay=enabled;RepairDisplay();}
+    public void ReleaseHeldDisplay()=>RepairDisplay();
+    void ChestOpenedForDisplay()=>RepairDisplay();
+    void RepairDisplay()
     {
-        if(Current is null) return;
-        if(DisplayMatch is null || DisplayMatch.Id==Current.Id) {ledger.DisplayMatchId=Current.Id;ledger.PendingDisplayMatchId=null;return;}
-        ledger.PendingDisplayMatchId=Current.Id;AdvanceDisplay();
-    }
-    void AdvanceDisplay()
-    {
-        if(ledger.PendingDisplayMatchId is not {} next) return;
-        if(WaitForReplay && DisplayMatch is {} previous && previous.ReplaySessionId is null) return;
-        ledger.DisplayMatchId=next;ledger.PendingDisplayMatchId=null;
+        // Old versions could persist an unmatched ancient game as the display
+        // anchor. The active game wins as soon as it has a real chest event.
+        var display=Current is {Chests:>0}?Current:ledger.Matches.Where(m=>m.Chests>0).OrderByDescending(m=>m.Started).FirstOrDefault();
+        ledger.DisplayMatchId=display?.Id;
+        ledger.PendingDisplayMatchId=null;
     }
 
     static string Normalize(string s)
@@ -104,6 +99,7 @@ public sealed class Tracker
         if (Current is not null && !Current.Ended.HasValue) Current.Ended = at;
         Current = new MatchRecord { Started = at, Partial = partial };
         ledger.Matches.Add(Current);
+        RepairDisplay();
         gameplaySeen = partial;
         startCandidateAt = null; startCandidateSamples = 0;
         latched.Clear(); lastSeen.Clear(); absentMetadata.Clear();
@@ -137,7 +133,7 @@ public sealed class Tracker
         { lobbyCandidateAt=at; lobbyCandidateSamples=1; return false; }
         if(++lobbyCandidateSamples<2 || at-lobbyCandidateAt.Value<TimeSpan.FromMilliseconds(300)) return false;
         if(Current is not null && !Current.Ended.HasValue) Current.Ended=lobbyCandidateAt.Value;
-        Current=null; InLobby=true; lobbyCleared=true; lobbyBoundary=at; gameplaySeen=false;
+        Current=null;RepairDisplay(); InLobby=true; lobbyCleared=true; lobbyBoundary=at; gameplaySeen=false;
         startCandidateAt=null; startCandidateSamples=0;
         latched.Clear();lastSeen.Clear();absentMetadata.Clear();
         Phase="Lobby · previous match retained";

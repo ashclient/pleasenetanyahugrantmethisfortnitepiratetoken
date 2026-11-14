@@ -40,7 +40,7 @@ public sealed class LinkClient
         try { Config=File.Exists(path)?JsonSerializer.Deserialize<LinkConfiguration>(File.ReadAllText(path),Json)??new():new(); }
         catch { File.Copy(path,path+".damaged-"+DateTime.UtcNow.Ticks,true);Config=new();Status="Pairing settings could not be read; personal history is safe. Rejoin and ask the creator to remove the old member."; }
         this.endpoint=endpoint??new Uri(ServiceUrl);this.http=http??new HttpClient(new HttpClientHandler{AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(20)};
-        this.http.DefaultRequestHeaders.UserAgent.ParseAdd("TreasureLedger/0.5.3");
+        this.http.DefaultRequestHeaders.UserAgent.ParseAdd("TreasureLedger/0.5.4");
         Save();if(IsLinked)Status="Connecting · cached totals retained";
     }
     void Save(){string tmp=path+".tmp";File.WriteAllText(tmp,JsonSerializer.Serialize(Config,Json));File.Move(tmp,path,true);}

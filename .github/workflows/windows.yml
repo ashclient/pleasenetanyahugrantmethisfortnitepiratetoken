@@ -86,11 +86,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "v0.5.3-build.${{ github.run_id }}"
+          $tag = "v0.5.4-build.${{ github.run_id }}"
           $notes = @'
-          Version 0.5.3 adds persistent Show overlay controls in Settings and the tray, a Reset overlay position button, and total tracked match counts in Overview and Settings. Hidden overlays do not pause tracking. English matching now covers several HUD text sizes; Japanese includes a smaller text size. A dedicated label-plus-XP OCR confirmation can fill ordinary and rare chest misses live in either language instead of waiting for the popup to end; visual/OCR evidence is deduplicated. Actual gameplay detection still depends on visible notifications; additional diagnostics may be needed for unobserved misses.
+          Fixes the stale current-game counter shown in the supplied screenshot: a saved display anchor could remain on an ancient unchecked match even while the newest game had five saved chest events and more recent replays were already checked. Startup repairs that display selection without editing history. The finished match stays visible in the lobby; the first chest of the next game switches directly to its live count. Replay completion is no longer a gate, and late replay corrections update prior history/lifetime totals without replacing the active game's number. The obsolete skip-pending-replay control and misleading hold text are removed.
 
-          Rare-chest coverage additionally includes RARE CHEST SEARCHED / SEARCHED A RARE CHEST, Japanese opened-label variants, zero/O confusion within XP digits, two-digit multipliers and observed rapid-stack increases, a wider/lower notification crop and a raw-color OCR pass when contrast OCR fails. Two focused samples plus XP are still required; quest and interaction labels stay excluded.
+          Includes 0.5.3 English/Japanese live chest and rare-chest coverage, overlay visibility/position controls, total matches and sync fixes. Regression tests reproduce the stuck 1-versus-5 screenshot state and late-replay behavior.
 
           The included sync fixes embed the direct Cloudflare endpoint in the source default as well as the release build. Every participant should update and use the same group's invite code; groups support up to 32 members. The previous ChatGPT-hosted endpoint returns HTML HTTP 401, which older clients displayed only as 'Sync request failed'. Errors now include HTTP status and server host without exposing credentials or raw HTML. Temporary HTML/proxy failures preserve membership and retry automatically; HTTP timeouts no longer escape background sync.
 
@@ -98,7 +98,7 @@ jobs:
 
           Settings has separate Overview, Matches, Rewards, Linked counts, Settings and Diagnostics pages. Match rows update in place; tracking ticks no longer rebuild the lists or interrupt scrolling and selection.
 
-          Chest overlay order: current game / all-time tracked / linked all-time tracked. The previous game stays visible in the lobby, receives replay corrections, and switches only after the next game's first chest and the prior replay check. New-game detections keep saving while waiting. If a replay is unavailable, Settings can release the held display; disabling replay checks also releases it.
+          Chest overlay order: current game / all-time tracked / linked all-time tracked. The previous game stays visible in the lobby, receives replay corrections, and switches directly on the next game's first chest. Background replay checks cannot hold or replace the active game display.
 
           Online invite-code pairing shares display names and total chest/reward counts with your private group. Each installation has a persistent identity and revisioned snapshot: reopening replaces its contribution, never adds its lifetime count twice. Linked totals include you; offline peers keep their last synced contribution. Creators can remove members (rotating the invite code) or close the group. No screenshots, replays or match history are uploaded. Keep invite codes private; deleting local pairing identity requires removing its previous member entry.
 

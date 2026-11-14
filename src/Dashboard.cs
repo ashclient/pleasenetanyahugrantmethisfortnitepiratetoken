@@ -59,7 +59,7 @@ public sealed class Dashboard : Form
     readonly ComboBox language=new(){DropDownStyle=ComboBoxStyle.DropDownList,Width=230};
     readonly CheckBox showOverlay=new(){Text="Show overlay",AutoSize=true};
     readonly CheckBox replayEnabled=new(){Text="Check completed replays automatically",AutoSize=true},freeze=new(){Text="Pause diagnostic view",AutoSize=true};
-    readonly Button release,create,join,leave,remove;bool updating,linkBusy,loadedName;DateTime nextDiagnostic;
+    readonly Button create,join,leave,remove;bool updating,linkBusy,loadedName;DateTime nextDiagnostic;
     public Dashboard(DashboardActions actions)
     {
         this.actions=actions;Text="Treasure Ledger · Settings";Font=new Font("Segoe UI",10);ForeColor=Ink;
@@ -72,7 +72,7 @@ public sealed class Dashboard : Form
             var b=new Button{Text=title,TextAlign=ContentAlignment.MiddleLeft,Size=new Size(154,43),FlatStyle=FlatStyle.Flat,ForeColor=Color.FromArgb(192,204,225),Margin=new Padding(0,3,0,3),Padding=new Padding(12,0,0,0)};b.FlatAppearance.BorderSize=0;
             b.Click+=(_,_)=>ShowPage(title);navigation[title]=b;nav.Controls.Add(b);
         }
-        var bottom=new Label{Dock=DockStyle.Bottom,Height=56,ForeColor=Color.FromArgb(153,171,200),Text="Alt+T  ·  overlay lock\nv0.5.3 · Cloudflare sync",Font=new Font("Segoe UI",9)};sidebar.Controls.Add(bottom);
+        var bottom=new Label{Dock=DockStyle.Bottom,Height=56,ForeColor=Color.FromArgb(153,171,200),Text="Alt+T  ·  overlay lock\nv0.5.4 · Cloudflare sync",Font=new Font("Segoe UI",9)};sidebar.Controls.Add(bottom);
         var overview=Page("Overview","Your treasure, at a glance",out var overviewRoot);
         overviewRoot.RowStyles[2].Height=150;
         var cards=new TableLayoutPanel{Dock=DockStyle.Top,Height=138,ColumnCount=3,Margin=new Padding(0,12,0,20)};
@@ -102,8 +102,7 @@ public sealed class Dashboard : Form
         settings.Controls.Add(Field("Fortnite HUD language",language));settings.Controls.Add(Note("Choose the language used inside Fortnite. English is the default for new installs."));
         replayEnabled.CheckedChanged+=(_,_)=>{if(!updating)actions.ReplayChecking(replayEnabled.Checked);};settings.Controls.Add(replayEnabled);settings.Controls.Add(folder);
         settings.Controls.Add(Row(Button("Choose replay folder",actions.ChooseReplayFolder),Button("Retry recognition",actions.Retry)));
-        settings.Controls.Add(Note("Turn on Record Replays in Fortnite. Completed replays can add missed or destroyed chests.\nThe previous game stays visible through replay checking and switches on the next game's first chest.\nIf its replay is unavailable, you can release the held display below."));
-        release=Button("Show current game · skip pending replay",actions.ReleaseDisplay);settings.Controls.Add(release);
+        settings.Controls.Add(Note("Turn on Record Replays in Fortnite. Completed replays can add missed or destroyed chests.\nThe previous game stays visible in the lobby and switches on the next game's first chest.\nReplay checks update history and lifetime totals in the background; they never block the live counter."));
         settings.Controls.Add(Row(Button("Open saved data",actions.OpenData),Button("Review saved rewards",actions.ReviewRewards)));
         settings.Controls.Add(Note("Use Windowed Fullscreen for capture. Alt+T unlocks the transparent overlay for moving it.\nMatch times use your Windows timezone automatically. Personal history stays on your PC."));
         Page("Diagnostics","Local recognition details and troubleshooting",out var dr);dr.Controls.Add(Row(Button("Save diagnosis",actions.SaveDiagnosis),Button("Retry recognition",actions.Retry),freeze),0,2);
@@ -134,8 +133,8 @@ public sealed class Dashboard : Form
         var totals=ledger.Totals;long own=totals.GetValueOrDefault("Chest");current.Text=tracker.DisplayedChests.ToString("N0");personal.Text=own.ToString("N0");linked.Text=links.Combined(own)?.ToString("N0")??"—";
         int totalMatches=ledger.Matches.Count(m=>!m.ReplayFragment);matchTotal.Text=$"TOTAL MATCHES  {totalMatches:N0}";settingsMatches.Text=$"Total matches tracked on this PC: {totalMatches:N0}";
         phase.Text=tracker.Phase;replay.Text=replayMessage;folder.Text="Replay folder: "+replayFolder;
-        hold.Text=tracker.DisplayWaitingForReplay?"Previous game held · waiting for its completed replay. New game chests are being saved.":tracker.DisplayMatch?.Id!=tracker.Current?.Id&&tracker.DisplayMatch is not null?"Previous game retained · switches after replay checking and the next game's first chest.":"Current game / all-time tracked / linked all-time tracked";
-        release.Enabled=ledger.PendingDisplayMatchId.HasValue;
+        hold.Text=tracker.Current is {Chests:>0}?"Live game · previous replay checks update history and lifetime totals in the background.":"Last game retained · switches on the next game's first chest. Replay checking does not block it.";
+
         var rows=ledger.Matches.OrderByDescending(m=>m.Started).Select(m=>(m.Id.ToString(),new object[]{m.Started.LocalDateTime.ToString("g"),m.Chests,m.ReplayDestroyedCount?.ToString()??"—",m.Events.Count(x=>x.Kind!="Chest"&&!x.Excluded),m.ReplayCountLower?"Replay discrepancy":m.ReplayFragment?"Replay fragment":m.ReplaySessionId is not null?"Replay checked":m.Partial?"Partial":m.Ended.HasValue?"Finished":m==tracker.Current?"Current":"Previous run"})).ToList();matches.UpdateRows(rows);
         recent.UpdateRows(rows.Take(12).Select(r=>(r.Item1,new object[]{r.Item2[0],r.Item2[1],r.Item2[4]})).ToList());
         rewards.UpdateRows(Tracker.Rewards.Select(k=>(k,new object[]{k,totals.GetValueOrDefault(k),tracker.Current?.Events.Count(e=>e.Kind==k&&!e.Excluded)??0,links.IsLinked?(links.State?.Members.Where(m=>m.Id!=links.Config.MemberId).Sum(m=>m.Rewards.GetValueOrDefault(k))??0)+totals.GetValueOrDefault(k):"—"})).ToList());
