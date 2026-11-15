@@ -11,10 +11,16 @@ public static class ReplayReconciliation
         if(!replay.OwnerKnown || !replay.IsBattleRoyale) return new(false,"Replay skipped: recording player or Battle Royale mode not confirmed");
         if(string.IsNullOrWhiteSpace(replay.SessionId) || replay.DurationSeconds is <= 0 or > 10800 || replay.Chests.Count > 10000)
             return new(false,"Replay skipped: invalid summary");
-        if(ledger.Matches.Any(m=>m.ReplaySessionId == replay.SessionId)) return new(false,"Replay already checked");
         var end = replay.Started.AddSeconds(replay.DurationSeconds);
         if(replay.Chests.Any(c=>!double.IsFinite(c.Seconds) || c.Seconds < 0 || c.Seconds > replay.DurationSeconds + 120))
             return new(false,"Replay skipped: invalid chest timing");
+        var existing=ledger.Matches.Where(m=>m.ReplaySessionId==replay.SessionId).ToList();
+        if(existing.Count>0){
+            bool changed=existing.Any(m=>m.ReplayStarted!=replay.Started||m.ReplayEnded!=end);
+            foreach(var m in existing){m.ReplayStarted=replay.Started;m.ReplayEnded=end;}
+            var owner=existing.OrderBy(m=>m.ReplayFragment).ThenBy(m=>m.Started).First();
+            return new(changed,changed?"Replay already checked · game dates updated; chest totals unchanged":"Replay already checked",changed?owner.Id:null);
+        }
         // Prefer actual chest-event evidence over empty staging/lobby records.
         // Several fully contained records can be fragments of the same game
         // after an earlier reset bug; link them without deleting their history.
@@ -33,7 +39,7 @@ public static class ReplayReconciliation
         var match = linked.OrderBy(m=>m.Started).FirstOrDefault();
         if(match is null)
         {
-            match = new MatchRecord { Started = replay.Started, Ended = end };
+            match = new MatchRecord { Started = replay.Started, Ended = end,StartBoundary="Replay",EndBoundary="Replay" };
             ledger.Matches.Add(match); linked.Add(match);
         }
         int visual = linked.Sum(m=>m.Chests), missing = Math.Max(0,replay.Chests.Count - visual);
@@ -43,6 +49,7 @@ public static class ReplayReconciliation
         foreach(var fragment in linked)
         {
             fragment.ReplaySessionId=replay.SessionId;
+            fragment.ReplayStarted=replay.Started;fragment.ReplayEnded=end;
             fragment.ReplayFragment=fragment!=match;
             fragment.Ended??=end;
         }

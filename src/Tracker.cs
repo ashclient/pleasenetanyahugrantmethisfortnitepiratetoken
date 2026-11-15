@@ -15,6 +15,10 @@ public sealed class MatchRecord
     public bool Partial { get; set; }
     public string? ReplaySessionId { get; set; }
     public bool ReplayFragment { get; set; }
+    public DateTimeOffset? ReplayStarted {get;set;}
+    public DateTimeOffset? ReplayEnded {get;set;}
+    public string? StartBoundary {get;set;}
+    public string? EndBoundary {get;set;}
     public int? ReplayChestCount { get; set; }
     public int? ReplayDestroyedCount { get; set; }
     public bool ReplayCountLower { get; set; }
@@ -47,6 +51,8 @@ public sealed class Tracker
     private int cleanRewardSamples;
     private DateTimeOffset? lastGameplayAt, lastMatchSample, startCandidateAt;
     private int startCandidateSamples;
+    private DateTimeOffset? finishCandidateAt,lastFinishSample,lastConfirmedResultAt;
+    private int finishCandidateSamples;
     private DateTimeOffset? lastLobbySample, lobbyCandidateAt, lobbyBoundary;
     private int lobbyCandidateSamples, lobbyAbsentSamples;
     private bool lobbyCleared;
@@ -96,8 +102,9 @@ public sealed class Tracker
     void BeginMatch(DateTimeOffset at, bool partial)
     {
         InLobby=false; lobbyCleared=false; lobbyCandidateAt=null; lobbyCandidateSamples=0;
-        if (Current is not null && !Current.Ended.HasValue) Current.Ended = at;
-        Current = new MatchRecord { Started = at, Partial = partial };
+        if (Current is not null && !Current.Ended.HasValue) {Current.Ended=at;Current.EndBoundary="Next pregame";}
+        Current = new MatchRecord { Started = at, Partial = partial,StartBoundary=partial?"Inferred from chest notification":"Confirmed pregame" };
+        finishCandidateAt=lastConfirmedResultAt=null;finishCandidateSamples=0;
         ledger.Matches.Add(Current);
         RepairDisplay();
         gameplaySeen = partial;
@@ -132,7 +139,7 @@ public sealed class Tracker
         if(!lobbyCandidateAt.HasValue || at-lobbyCandidateAt.Value>TimeSpan.FromSeconds(8))
         { lobbyCandidateAt=at; lobbyCandidateSamples=1; return false; }
         if(++lobbyCandidateSamples<2 || at-lobbyCandidateAt.Value<TimeSpan.FromMilliseconds(300)) return false;
-        if(Current is not null && !Current.Ended.HasValue) Current.Ended=lobbyCandidateAt.Value;
+        if(Current is not null && !Current.Ended.HasValue){Current.Ended=lobbyCandidateAt.Value;Current.EndBoundary="Confirmed lobby";}
         Current=null;RepairDisplay(); InLobby=true; lobbyCleared=true; lobbyBoundary=at; gameplaySeen=false;
         startCandidateAt=null; startCandidateSamples=0;
         latched.Clear();lastSeen.Clear();absentMetadata.Clear();
@@ -153,16 +160,24 @@ public sealed class Tracker
         string allText = string.Join(" ", samples.Select(x => x.Text));
         bool start = Regex.IsMatch(header, @"WAITING F[O0]R (OTHER )?PLAYERS|BATTLE\s?BUS (IS )?(LAUNCHING|LEAVING)|EVERYBODY OFF.*LAST STOP")
             || Regex.IsMatch(header, @"プレイヤー(を)?(待っています|待機中|待ち)|バトルバス(の)?(発車|出発|発進)|最終降車地点|最後の停留所");
-        bool finish = Regex.IsMatch(allText, @"YOU PLACED|VICTORY ROYALE|あなたの順位|ビクトリー?ロイヤル");
-        if (finish)
+        bool ResultLabel(Observation row)=>Regex.IsMatch(row.Text,@"^(YOU PLACED\b|(?:1\s+)?VICTORY ROYALE\b|あなたの順位|(?:1\s+)?ビクトリー?ロイヤル)");
+        var resultRows=samples.Where(x=>(!visualActive||(x.Source=="match-ocr"||x.Source=="lobby-ocr"&&x.Y<.32))&&(!headerSample||(x.CapturedAt??at)==at)&&ResultLabel(x)).ToList();
+        bool finish=resultRows.Count>0;
+        if(finish)
         {
-            var finishAt = samples.Where(x => Regex.IsMatch(x.Text, @"YOU PLACED|VICTORY ROYALE|あなたの順位|ビクトリー?ロイヤル")).Select(x => x.CapturedAt).Max() ?? at;
-            if (Current is not null && finishAt < Current.Started || lastGameplayAt.HasValue && finishAt < lastGameplayAt.Value) return false;
-            startCandidateAt = null; startCandidateSamples = 0;
-            Phase = "Match finished";
-            if (Current is not null && !Current.Ended.HasValue) { Current.Ended = finishAt; return true; }
+            var finishAt=resultRows.Select(x=>x.CapturedAt).Max()??at;
+            if(Current is not null&&finishAt<Current.Started||lastGameplayAt.HasValue&&finishAt<lastGameplayAt.Value)return false;
+            if(visualActive){
+                if(!headerSample||lastFinishSample.HasValue&&finishAt<=lastFinishSample.Value)return false;
+                lastFinishSample=finishAt;
+                if(!finishCandidateAt.HasValue||finishAt-finishCandidateAt.Value>TimeSpan.FromSeconds(8)){finishCandidateAt=finishAt;finishCandidateSamples=1;return false;}
+                if(++finishCandidateSamples<2||finishAt-finishCandidateAt.Value<TimeSpan.FromMilliseconds(300))return false;
+            }
+            startCandidateAt=null;startCandidateSamples=0;lastConfirmedResultAt=finishAt;Phase="Match finished";
+            if(Current is not null&&!Current.Ended.HasValue){Current.Ended=finishAt;Current.EndBoundary="Confirmed result";return true;}
             return false;
         }
+        if(headerSample){finishCandidateAt=null;finishCandidateSamples=0;}
         if (visualActive && !headerSample) return false;
         if (lastMatchSample.HasValue && at <= lastMatchSample.Value) return false;
         lastMatchSample = at;
@@ -178,7 +193,7 @@ public sealed class Tracker
         { startCandidateAt = at; startCandidateSamples = 1; return false; }
         startCandidateSamples++;
         if (startCandidateSamples < 2 || at - startCandidateAt.Value < TimeSpan.FromMilliseconds(300)) return false;
-        BeginMatch(startCandidateAt.Value, false); return true;
+        BeginMatch(lastGameplayAt.HasValue&&startCandidateAt.Value<lastGameplayAt.Value?at:startCandidateAt.Value, false); return true;
     }
     public bool Process(IReadOnlyList<Observation> lines, DateTimeOffset now)
     {
@@ -209,8 +224,9 @@ public sealed class Tracker
             if (!chestName) return false;
             return center.Any(x => Xp(x) && Math.Abs(x.X - line.X) < .28 && Math.Abs(x.Y - line.Y) < .15);
         }
-        string? chest = center.FirstOrDefault(Notification)?.Text;
-        int liveChests = lines.Count(x => x.Source == "event-chest");
+        bool residualResult=lastConfirmedResultAt.HasValue&&now-lastConfirmedResultAt.Value<TimeSpan.FromSeconds(2);
+        string? chest=residualResult?null:center.FirstOrDefault(Notification)?.Text;
+        int liveChests=residualResult?0:lines.Count(x=>x.Source=="event-chest");
         if (liveChests > 0)
         {
             if (Current is null || Current.Ended.HasValue) BeginMatch(now, true);

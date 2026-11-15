@@ -105,7 +105,8 @@ delayedTracker.Process(Metadata(15,"YOU PLACED 20"),time.AddSeconds(22));
 Check(!delayedTracker.Current!.Ended.HasValue,"Old result OCR cannot end a newer match");
 var ended = new Ledger(); var endedTracker = new Tracker(ended);
 endedTracker.Process(Opening(),time);
-endedTracker.Process(Metadata(10,"YOU PLACED 30"),time.AddSeconds(10));
+endedTracker.Process(Header(10,"YOU PLACED 30"),time.AddSeconds(10));
+endedTracker.Process(Header(10.6,"YOU PLACED 30"),time.AddSeconds(10.6));
 endedTracker.Process(Opening(),time.AddSeconds(40));
 Check(ended.Matches.Count==2 && ended.Matches[0].Chests==1 && endedTracker.Current!.Chests==1 && ended.Totals["Chest"]==2,"Chest after ended match creates a partial match if all start banners were missed");
 var resumed = JsonSerializer.Deserialize<Ledger>(JsonSerializer.Serialize(ended))!;
@@ -347,6 +348,37 @@ Check(lobbyRepair.DisplayedChests==34&&stuckLobby.Matches.Count==2,"Startup in l
 var danglingOld=FixtureMatch(-30,1,false);var newerFinished=FixtureMatch(-10,9,true,"latest-done");
 var danglingLedger=new Ledger{Matches=[danglingOld,newerFinished],DisplayMatchId=danglingOld.Id};var danglingTracker=new Tracker(danglingLedger);
 Check(danglingTracker.Current is null&&danglingTracker.DisplayedChests==9,"An ancient unfinished record cannot override a newer completed game at startup");
+
+// Anonymous replay-linked shape from the supplied screenshots; no uploaded history is bundled.
+MatchRecord Segment(int chestCount,int minute,bool fragment,string? replayId,int? replayTotal=null,int? destroyed=null)=>new(){Started=time.AddMinutes(minute),Ended=time.AddMinutes(minute+10),Partial=true,ReplaySessionId=replayId,ReplayFragment=fragment,ReplayChestCount=replayTotal,ReplayDestroyedCount=destroyed,Events=Enumerable.Range(0,chestCount).Select(_=>new LedgerEvent(time.AddMinutes(minute+1),"Chest","anonymous fragment fixture")).ToList()};
+var groupedHistory=new Ledger{Matches=[Segment(2,0,false,"group37",37,4),Segment(35,1,true,"group37")]};
+int groupedBefore=groupedHistory.Totals["Chest"];var summary37=MatchHistory.Summarize(groupedHistory).Single();
+Check(summary37.Chests==37&&summary37.Broken==4&&summary37.Segments==2&&summary37.State=="Replay checked","2 + 35 replay-linked fragments display as one 37-chest game with four included broken chests");
+Check(groupedHistory.Matches.Count==2&&groupedHistory.Totals["Chest"]==groupedBefore,"History grouping never deletes records or changes lifetime counts");
+var screenshot66=new Ledger{Matches=[Segment(8,0,false,"group66",66,8),Segment(58,1,true,"group66"),Segment(2,-2,false,null)]};var games66=MatchHistory.Summarize(screenshot66);
+Check(games66.Single(g=>g.Key=="replay:group66").Chests==66&&games66.Single(g=>g.Key=="replay:group66").Broken==8,"8 + 58 display as one 66-chest replay game rather than an 8-chest game beside a fragment");
+Check(games66.Count(g=>g.Unconfirmed)==1&&screenshot66.Totals["Chest"]==68,"Unlinked early segment stays explicitly unconfirmed with its chest evidence preserved");
+var discrepancyHistory=new Ledger{Matches=[Segment(2,0,false,"discrepancy",5,1),Segment(4,1,true,"discrepancy")]};var discrepancyRow=MatchHistory.Summarize(discrepancyHistory).Single();
+Check(discrepancyRow.State.StartsWith("Review:")&&discrepancyRow.Chests==6&&discrepancyHistory.Totals["Chest"]==6,"Tracked count above replay count is flagged for review without guessing away saved events");
+var dateReplay=new ReplaySummary("group37",time.AddMinutes(-1),900,true,true,Enumerable.Range(0,37).Select(i=>new ReplayChest(i+1,i<4)).ToList());
+var metadataRepair=ReplayReconciliation.Apply(groupedHistory,dateReplay);
+Check(metadataRepair.Changed&&groupedHistory.Totals["Chest"]==37&&MatchHistory.Summarize(groupedHistory).Single().Started==dateReplay.Started,"Existing checked replay can repair physical game dates without adding chest events");
+Check(!ReplayReconciliation.Apply(groupedHistory,dateReplay).Changed&&groupedHistory.Totals["Chest"]==37,"Replay date backfill is idempotent");
+var guardedLedger=new Ledger();var guardedTracker=new Tracker(guardedLedger);guardedTracker.Process(Opening(),time);
+guardedTracker.Process(Metadata(1,"YOU PLACED 20"),time.AddSeconds(1));
+Check(!guardedTracker.Current!.Ended.HasValue,"Reward/scene metadata cannot end a production match");
+guardedTracker.Process(Header(2,"YOU PLACED 20"),time.AddSeconds(2));guardedTracker.Process(Opening(),time.AddSeconds(2.2));
+guardedTracker.Process(Header(2.8,""),time.AddSeconds(2.8));
+Check(guardedLedger.Matches.Count==1&&guardedTracker.Current!.Chests==2&&!guardedTracker.Current.Ended.HasValue,"Single false result sample cannot split chest events into phantom partial games");
+guardedTracker.Process(Header(10,"YOU PLACED 20"),time.AddSeconds(10));guardedTracker.Process(Header(10,"YOU PLACED 20"),time.AddSeconds(10.4));
+Check(!guardedTracker.Current!.Ended.HasValue,"Replaying the same result OCR sample is not a second confirmation");
+guardedTracker.Process(Header(10.7,"YOU PLACED 20"),time.AddSeconds(10.7));
+Check(guardedTracker.Current!.Ended==time.AddSeconds(10.7)&&guardedTracker.Current.EndBoundary=="Confirmed result","Two fresh result samples end the game with a diagnostic boundary reason");
+guardedTracker.Process(Opening(),time.AddSeconds(11));
+Check(guardedLedger.Matches.Count==1&&guardedLedger.Totals["Chest"]==2,"Residual post-result chest popup cannot immediately create a phantom partial match");
+var boundaryLedger=new Ledger();var boundaryTracker=new Tracker(boundaryLedger);boundaryTracker.Process(Opening(),time);
+boundaryTracker.Process(Header(10,"WAITING FOR PLAYERS"),time.AddSeconds(10));boundaryTracker.Process(Opening(),time.AddSeconds(10.2));boundaryTracker.Process(Header(10.8,"WAITING FOR PLAYERS"),time.AddSeconds(10.8));
+Check(boundaryLedger.Matches[0].Ended>=boundaryLedger.Matches[0].Events.Max(e=>e.At),"Confirmed pregame boundary cannot end the previous record before its last chest event");
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");
 
 sealed class SyncTestHandler(Func<System.Net.Http.HttpRequestMessage,System.Net.Http.HttpResponseMessage> respond):System.Net.Http.HttpMessageHandler

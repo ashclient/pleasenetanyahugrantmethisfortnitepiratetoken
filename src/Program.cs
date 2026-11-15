@@ -276,7 +276,7 @@ public sealed class LedgerApplication : ApplicationContext
             if(exiting || !preferences.ReplayChecking || summary is null) return;
             if(summary.Started.AddSeconds(summary.DurationSeconds) < ledger.ReplayTrackingFrom!.Value) { replayMonitor.Report("Replay predates automatic checking; history unchanged"); return; }
             var correction=ReplayReconciliation.Apply(ledger,summary);
-            File.WriteAllText(Path.Combine(store.DirectoryPath,"replay-diagnosis.json"),JsonSerializer.Serialize(new { replay=summary,decision=correction,matches=ledger.Matches.Select(m=>new {m.Id,m.Started,m.Ended,m.ReplaySessionId,chests=m.Events.Where(e=>e.Kind=="Chest")}) }));
+            File.WriteAllText(Path.Combine(store.DirectoryPath,"replay-diagnosis.json"),JsonSerializer.Serialize(new { replay=summary,decision=correction,matches=ledger.Matches.Select(m=>new {m.Id,m.Started,m.Ended,m.ReplaySessionId,m.ReplayStarted,m.ReplayEnded,m.StartBoundary,m.EndBoundary,chests=m.Events.Where(e=>e.Kind=="Chest")}) }));
             replayMonitor.Report(correction.Message);
             if(correction.MatchId.HasValue) tracker.ReplayApplied(correction.MatchId.Value);
             if(correction.Changed || correction.MatchId.HasValue) store.Save(ledger);

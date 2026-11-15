@@ -1,3 +1,9 @@
+## Match history grouping (0.5.5)
+
+Known replay sessions now appear as one game, with all stored segment counts combined. A game with rows of 2 and 35 is shown as 37, with its game-wide broken-chest count. An 8 + 58 replay-linked pair is shown as 66. Stored events are preserved; no live chest totals are guessed away. Unconfirmed segments remain visible for review and are listed separately from confirmed/tracked match totals. Discrepancies between tracked and replay counts are explicit.
+
+Production game-end detection requires two fresh dedicated result samples. Scene/reward labels cannot end a match, residual post-result chest popups cannot immediately create new games, and a pregame boundary cannot precede the previous game's last chest. Local boundary reasons help diagnose remaining splits.
+
 ## Current-game display repair (0.5.4)
 
 A missing old replay can no longer keep the current-game number stuck. Existing saved display anchors are repaired on startup without modifying chest history. The last game stays visible in the lobby; the first chest in the next game switches directly to the live count. Late replay corrections continue updating prior match history and lifetime totals. They do not block or replace an active game's display.

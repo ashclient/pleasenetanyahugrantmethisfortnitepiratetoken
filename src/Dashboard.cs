@@ -52,7 +52,7 @@ public sealed class Dashboard : Form
     static readonly Color Ink=Color.FromArgb(28,40,60),Muted=Color.FromArgb(103,117,138),Accent=Color.FromArgb(64,104,222);
     readonly DashboardActions actions;readonly Panel body=new(){Dock=DockStyle.Fill,Padding=new Padding(28),BackColor=Color.FromArgb(246,248,252)};
     readonly Dictionary<string,Control> pages=[];readonly Dictionary<string,Button> navigation=[];
-    readonly LedgerGrid matches=new("Started (local time)","Chests","Broken","Rewards","State"),recent=new("Started (local time)","Chests","State"),rewards=new("Reward","All-time tracked","Current game","Linked all-time"),members=new("Member","Chests","Rewards","Last online");
+    readonly LedgerGrid matches=new("Started (local time)","Total chests","Broken (included)","Rewards","State"),recent=new("Started (local time)","Chests","State"),rewards=new("Reward","All-time tracked","Current game","Linked all-time"),members=new("Member","Chests","Rewards","Last online");
     readonly Label current=Value(),personal=Value(),linked=Value(),phase=Note(),capture=Note(),replay=Note(),linkStatus=Note(),groupTitle=Note(),folder=Note(),hold=Note(),matchTotal=Note(),settingsMatches=Note();
     readonly TextBox diagnostics=new(){Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.FixedSingle};
     readonly TextBox name=new(){Width=230,MaxLength=32},group=new(){Width=230,Text="My crew",MaxLength=40},code=new(){Width=430},invite=new(){Width=480,ReadOnly=true};
@@ -72,7 +72,7 @@ public sealed class Dashboard : Form
             var b=new Button{Text=title,TextAlign=ContentAlignment.MiddleLeft,Size=new Size(154,43),FlatStyle=FlatStyle.Flat,ForeColor=Color.FromArgb(192,204,225),Margin=new Padding(0,3,0,3),Padding=new Padding(12,0,0,0)};b.FlatAppearance.BorderSize=0;
             b.Click+=(_,_)=>ShowPage(title);navigation[title]=b;nav.Controls.Add(b);
         }
-        var bottom=new Label{Dock=DockStyle.Bottom,Height=56,ForeColor=Color.FromArgb(153,171,200),Text="Alt+T  ·  overlay lock\nv0.5.4 · Cloudflare sync",Font=new Font("Segoe UI",9)};sidebar.Controls.Add(bottom);
+        var bottom=new Label{Dock=DockStyle.Bottom,Height=56,ForeColor=Color.FromArgb(153,171,200),Text="Alt+T  ·  overlay lock\nv0.5.5 · Cloudflare sync",Font=new Font("Segoe UI",9)};sidebar.Controls.Add(bottom);
         var overview=Page("Overview","Your treasure, at a glance",out var overviewRoot);
         overviewRoot.RowStyles[2].Height=150;
         var cards=new TableLayoutPanel{Dock=DockStyle.Top,Height=138,ColumnCount=3,Margin=new Padding(0,12,0,20)};
@@ -80,7 +80,7 @@ public sealed class Dashboard : Form
         cards.Controls.Add(Card("CURRENT GAME",current));cards.Controls.Add(Card("ALL-TIME TRACKED",personal));cards.Controls.Add(Card("LINKED ALL-TIME",linked));overviewRoot.Controls.Add(cards,0,2);
         var overviewDetails=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=6};overviewDetails.RowStyles.Add(new(SizeType.Absolute,32));overviewDetails.RowStyles.Add(new(SizeType.Absolute,45));overviewDetails.RowStyles.Add(new(SizeType.Absolute,54));overviewDetails.RowStyles.Add(new(SizeType.Absolute,32));overviewDetails.RowStyles.Add(new(SizeType.Percent,100));overviewDetails.RowStyles.Add(new(SizeType.Absolute,58));
         overviewDetails.Controls.Add(matchTotal);overviewDetails.Controls.Add(phase);overviewDetails.Controls.Add(hold);overviewDetails.Controls.Add(new Label{Text="RECENT MATCHES",ForeColor=Muted,Dock=DockStyle.Fill,Font=new Font("Segoe UI",9,FontStyle.Bold)});overviewDetails.Controls.Add(recent);overviewDetails.Controls.Add(replay);overviewRoot.Controls.Add(overviewDetails,0,3);
-        var matchPage=Page("Matches","Every match, with replay corrections",out var mr);mr.RowStyles[2].Height=0;mr.Controls.Add(matches,0,3);
+        var matchPage=Page("Matches","Every match, with replay corrections",out var mr);mr.RowStyles[2].Height=76;mr.Controls.Add(Note("Replay-linked segments share one row. Broken chests are included in the total.\nUnconfirmed segments remain separate; their counts are retained."),0,2);mr.Controls.Add(matches,0,3);
         var rewardPage=Page("Rewards","Saved discoveries across your games",out var rr);rr.Controls.Add(Row(Button("Review saved rewards",()=>actions.ReviewRewards())),0,2);rr.Controls.Add(rewards,0,3);
         Page("Linked counts","Pair with friends using a private invite code",out var lr);
         var linkContent=Stack();lr.Controls.Add(linkContent,0,3);lr.RowStyles[2].Height=0;
@@ -131,11 +131,13 @@ public sealed class Dashboard : Form
     {
         updating=true;showOverlay.Checked=preferences.OverlayVisible;language.SelectedIndex=preferences.Language=="ja-JP"?1:0;replayEnabled.Checked=preferences.ReplayChecking;updating=false;
         var totals=ledger.Totals;long own=totals.GetValueOrDefault("Chest");current.Text=tracker.DisplayedChests.ToString("N0");personal.Text=own.ToString("N0");linked.Text=links.Combined(own)?.ToString("N0")??"—";
-        int totalMatches=ledger.Matches.Count(m=>!m.ReplayFragment);matchTotal.Text=$"TOTAL MATCHES  {totalMatches:N0}";settingsMatches.Text=$"Total matches tracked on this PC: {totalMatches:N0}";
+        var games=MatchHistory.Summarize(ledger,tracker.Current?.Id);int totalMatches=games.Count(g=>!g.Unconfirmed&&!g.Waiting),segments=games.Count(g=>g.Unconfirmed);
+        matchTotal.Text=$"TOTAL MATCHES  {totalMatches:N0}"+(segments>0?$"  ·  {segments:N0} unconfirmed segments":"");settingsMatches.Text=$"Confirmed/tracked matches on this PC: {totalMatches:N0}"+(segments>0?$" · {segments:N0} unconfirmed segments retained":"");
         phase.Text=tracker.Phase;replay.Text=replayMessage;folder.Text="Replay folder: "+replayFolder;
         hold.Text=tracker.Current is {Chests:>0}?"Live game · previous replay checks update history and lifetime totals in the background.":"Last game retained · switches on the next game's first chest. Replay checking does not block it.";
 
-        var rows=ledger.Matches.OrderByDescending(m=>m.Started).Select(m=>(m.Id.ToString(),new object[]{m.Started.LocalDateTime.ToString("g"),m.Chests,m.ReplayDestroyedCount?.ToString()??"—",m.Events.Count(x=>x.Kind!="Chest"&&!x.Excluded),m.ReplayCountLower?"Replay discrepancy":m.ReplayFragment?"Replay fragment":m.ReplaySessionId is not null?"Replay checked":m.Partial?"Partial":m.Ended.HasValue?"Finished":m==tracker.Current?"Current":"Previous run"})).ToList();matches.UpdateRows(rows);
+        var rows=games.Select(m=>(m.Key,new object[]{m.Started.LocalDateTime.ToString("g"),m.Chests,m.Broken?.ToString()??"—",m.Rewards,m.State})).ToList();matches.UpdateRows(rows);
+
         recent.UpdateRows(rows.Take(12).Select(r=>(r.Item1,new object[]{r.Item2[0],r.Item2[1],r.Item2[4]})).ToList());
         rewards.UpdateRows(Tracker.Rewards.Select(k=>(k,new object[]{k,totals.GetValueOrDefault(k),tracker.Current?.Events.Count(e=>e.Kind==k&&!e.Excluded)??0,links.IsLinked?(links.State?.Members.Where(m=>m.Id!=links.Config.MemberId).Sum(m=>m.Rewards.GetValueOrDefault(k))??0)+totals.GetValueOrDefault(k):"—"})).ToList());
         if(!loadedName){name.Text=links.Config.Name;loadedName=true;}groupTitle.Text=links.IsLinked?links.State?.GroupName??"Linked group":"Start a shared treasure ledger";linkStatus.Text=links.Status;invite.Text=links.IsLinked?links.Config.InviteCode??"":"";
