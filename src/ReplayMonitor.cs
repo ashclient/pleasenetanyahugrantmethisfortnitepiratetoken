@@ -42,13 +42,14 @@ internal sealed class ReplayMonitor(string dataPath,DateTimeOffset from)
 {
     readonly Dictionary<string,DateTimeOffset> retryAfter = new();
     readonly HashSet<string> checkedFiles = new();
+    string? lastMeaningfulMessage;
     public string Status { get; private set; } = "Replay check: waiting for a completed match";
     public string Folder { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"FortniteGame","Saved","Demos");
     public async Task<ReplaySummary?> ScanNext(CancellationToken token)
     {
         if(!Directory.Exists(Folder)) { Status="Replay folder missing · enable Record Replays in Fortnite Settings → Game"; return null; }
         var now=DateTimeOffset.UtcNow;
-        var files=new DirectoryInfo(Folder).EnumerateFiles("*.replay").Where(f=>f.LastWriteTimeUtc >= from.UtcDateTime && now.UtcDateTime-f.LastWriteTimeUtc > TimeSpan.FromSeconds(10)).OrderBy(f=>f.LastWriteTimeUtc);
+        var files=CompletedReplayCandidates(Folder,from,now);
         foreach(var file in files)
         {
             string fingerprint=$"{file.FullName}|{file.Length}|{file.LastWriteTimeUtc.Ticks}";
@@ -70,5 +71,9 @@ internal sealed class ReplayMonitor(string dataPath,DateTimeOffset from)
         // Keep the last correction/review message visible until a new file is checked.
         return null;
     }
-    public void Report(string text) => Status=text;
+    internal static IEnumerable<FileInfo> CompletedReplayCandidates(string folder,DateTimeOffset from,DateTimeOffset now)=>new DirectoryInfo(folder).EnumerateFiles("*.replay").Where(f=>f.LastWriteTimeUtc>=from.UtcDateTime&&now.UtcDateTime-f.LastWriteTimeUtc>TimeSpan.FromSeconds(10)).OrderByDescending(f=>f.LastWriteTimeUtc);
+    public void Report(string text){
+        if(text.StartsWith("Replay already checked",StringComparison.Ordinal)&&lastMeaningfulMessage is not null){Status=lastMeaningfulMessage;return;}
+        Status=text;if(!text.StartsWith("Replay already checked",StringComparison.Ordinal))lastMeaningfulMessage=text;
+    }
 }

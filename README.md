@@ -2,7 +2,7 @@
 
 Known replay sessions now appear as one game, with all stored segment counts combined. A game with rows of 2 and 35 is shown as 37, with its game-wide broken-chest count. An 8 + 58 replay-linked pair is shown as 66. Stored events are preserved; no live chest totals are guessed away. Unconfirmed segments remain visible for review and are listed separately from confirmed/tracked match totals. Discrepancies between tracked and replay counts are explicit.
 
-Production game-end detection requires two fresh dedicated result samples. Scene/reward labels cannot end a match, residual post-result chest popups cannot immediately create new games, and a pregame boundary cannot precede the previous game's last chest. Local boundary reasons help diagnose remaining splits.
+Production game-end detection requires two fresh dedicated result samples. Scene/reward labels cannot end a match, residual post-result chest popups cannot immediately create new games, and a pregame boundary cannot precede the previous game's last chest. Local boundary reasons help diagnose remaining splits. Newest completed replays are scanned first; old already-checked scans cannot overwrite the last meaningful correction status/diagnosis.
 
 ## Current-game display repair (0.5.4)
 

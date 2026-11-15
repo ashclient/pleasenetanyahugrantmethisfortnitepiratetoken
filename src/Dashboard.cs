@@ -164,6 +164,12 @@ public static class DashboardSmoke
             dashboard.ShowPage("Matches");Application.DoEvents();var grid=dashboard.MatchGrid;grid.CurrentCell=grid.Rows[45].Cells[0];grid.FirstDisplayedScrollingRowIndex=40;var selected=grid.CurrentRow!.Tag;int scroll=grid.FirstDisplayedScrollingRowIndex;
             for(int i=0;i<100;i++)Update();ledger.Matches[0].Events.Add(new(DateTimeOffset.UtcNow,"Chest","new chest"));Update();
             if(grid.FirstDisplayedScrollingRowIndex!=scroll||!Equals(grid.CurrentRow!.Tag,selected))throw new Exception("Settings scrolling or selection changed during tracking updates");
+            var demoAt=DateTimeOffset.UtcNow.AddHours(1);
+            MatchRecord DemoPart(int count,bool fragment)=>new(){Started=demoAt.AddSeconds(fragment?10:0),Ended=demoAt.AddMinutes(20),Partial=true,ReplaySessionId="ui-group37",ReplayFragment=fragment,ReplayChestCount=fragment?null:37,ReplayDestroyedCount=fragment?null:4,Events=Enumerable.Range(0,count).Select(_=>new LedgerEvent(demoAt.AddMinutes(2),"Chest","synthetic UI grouping")).ToList()};
+            var canonical=DemoPart(2,false);ledger.Matches.Add(canonical);ledger.Matches.Add(DemoPart(35,true));
+            ledger.Matches.Add(new(){Started=demoAt.AddMinutes(1),Ended=demoAt.AddMinutes(2),Partial=true,Events=[new(demoAt.AddMinutes(1),"Chest","synthetic unconfirmed"),new(demoAt.AddMinutes(1),"Chest","synthetic unconfirmed")]});
+            tracker.ReplayApplied(canonical.Id);Update();
+            if(grid.Rows.Count!=102||!grid.Rows.Cast<DataGridViewRow>().Any(r=>Convert.ToInt32(r.Cells[1].Value)==37&&r.Cells[2].Value?.ToString()=="4")||!dashboard.MatchTotalText.Contains("1 unconfirmed"))throw new Exception("Grouped replay row, included broken count or unconfirmed segment summary failed");
             foreach(string page in new[]{"Overview","Matches","Linked counts","Settings"}){dashboard.ShowPage(page);Application.DoEvents();using var image=new Bitmap(dashboard.Width,dashboard.Height);dashboard.DrawToBitmap(image,new Rectangle(Point.Empty,dashboard.Size));image.Save("settings-"+page.Replace(" ","-").ToLowerInvariant()+".png");}
             dashboard.Size=dashboard.MinimumSize;dashboard.ShowPage("Settings");Application.DoEvents();using var compact=new Bitmap(dashboard.Width,dashboard.Height);dashboard.DrawToBitmap(compact,new Rectangle(Point.Empty,dashboard.Size));compact.Save("settings-compact.png");
         }finally{try{Directory.Delete(path,true);}catch{}}

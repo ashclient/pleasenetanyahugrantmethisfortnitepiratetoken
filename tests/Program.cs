@@ -379,6 +379,14 @@ Check(guardedLedger.Matches.Count==1&&guardedLedger.Totals["Chest"]==2,"Residual
 var boundaryLedger=new Ledger();var boundaryTracker=new Tracker(boundaryLedger);boundaryTracker.Process(Opening(),time);
 boundaryTracker.Process(Header(10,"WAITING FOR PLAYERS"),time.AddSeconds(10));boundaryTracker.Process(Opening(),time.AddSeconds(10.2));boundaryTracker.Process(Header(10.8,"WAITING FOR PLAYERS"),time.AddSeconds(10.8));
 Check(boundaryLedger.Matches[0].Ended>=boundaryLedger.Matches[0].Events.Max(e=>e.At),"Confirmed pregame boundary cannot end the previous record before its last chest event");
+var scanFolder=Path.Combine(Path.GetTempPath(),"ledger-replay-order-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(scanFolder);
+try{
+ foreach(var item in new[]{("old.replay",0),("recent.replay",120),("recording.replay",179)}){string file=Path.Combine(scanFolder,item.Item1);File.WriteAllText(file,"synthetic");File.SetLastWriteTimeUtc(file,time.AddSeconds(item.Item2).UtcDateTime);}
+ var order=ReplayMonitor.CompletedReplayCandidates(scanFolder,time.AddSeconds(-1),time.AddSeconds(180)).Select(f=>f.Name).ToList();
+ Check(order.SequenceEqual(new[]{"recent.replay","old.replay"}),"Newest completed replay is checked first while the still-recording file is skipped");
+ var monitor=new ReplayMonitor(scanFolder,time);monitor.Report("Replay checked: +8 missed chests");monitor.Report("Replay already checked");
+ Check(monitor.Status=="Replay checked: +8 missed chests","Re-scanning old replay cannot hide the last meaningful correction status");
+}finally{Directory.Delete(scanFolder,true);}
 Console.WriteLine($"{assertions} assertions passed. These are synthetic observations, not a live Fortnite accuracy test.");
 
 sealed class SyncTestHandler(Func<System.Net.Http.HttpRequestMessage,System.Net.Http.HttpResponseMessage> respond):System.Net.Http.HttpMessageHandler

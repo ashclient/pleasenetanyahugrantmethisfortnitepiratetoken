@@ -92,6 +92,8 @@ jobs:
 
           Result detection in production requires two fresh dedicated match samples. Unrelated reward/scene text cannot end a game. Residual chest popups immediately after a confirmed result cannot create phantom partial games, and a confirmed new-start boundary cannot be backdated before the previous game's last chest. New boundary reasons are stored locally for diagnostics. Re-reading an existing replay can fill game-date metadata but never add another copy of its counts.
 
+          Replay scanning now prioritizes newest completed files. Re-scanned old files no longer overwrite the last meaningful correction status or diagnosis, avoiding long startup catch-up before the newest game is checked.
+
           Includes the 0.5.4 live-counter repair, English/Japanese/rare-chest coverage, overlay visibility/position controls and sync fixes. No uploaded player history, screenshots or pairing credentials are included in the public source.
 
           The included sync fixes embed the direct Cloudflare endpoint in the source default as well as the release build. Every participant should update and use the same group's invite code; groups support up to 32 members. The previous ChatGPT-hosted endpoint returns HTML HTTP 401, which older clients displayed only as 'Sync request failed'. Errors now include HTTP status and server host without exposing credentials or raw HTML. Temporary HTML/proxy failures preserve membership and retry automatically; HTTP timeouts no longer escape background sync.
